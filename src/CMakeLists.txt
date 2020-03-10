@@ -10,6 +10,5 @@ include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src)
 
 set(LIB_DB_IMPL field.cc integer.cc record.cc)
 add_library(dbimpl STATIC ${LIB_DB_IMPL})
-set(CMAKE_C_FLAGS "/D EXPORT ${CMAKE_C_FLAGS}")
-set(CMAKE_CXX_FLAGS "/D EXPORT ${CMAKE_CXX_FLAGS}")
-# target_link_libraries(ndsl pthread)
+# set(CMAKE_C_FLAGS "/D EXPORT ${CMAKE_C_FLAGS}")
+# set(CMAKE_CXX_FLAGS "/D EXPORT ${CMAKE_CXX_FLAGS}")

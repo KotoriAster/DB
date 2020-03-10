@@ -54,7 +54,7 @@ class Block : public ocf::utils::Field
     // 校验和检验
     inline bool checksum()
     {
-        unsigned int sum = ocf::utils::checksum32(
+        unsigned int sum = db::checksum32(
             (const unsigned char *) this->buffer_, BLOCK_SIZE);
         return !sum;
     }
