@@ -1,5 +1,5 @@
 build/*
-include/ocf/config.h
+include/db/config.h
 .vs/*
 CMakeSettings.json
 *.log

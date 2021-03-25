@@ -7,7 +7,7 @@
 # @email xiaowen.nie.cn@gmail.com
 #
 project(db)
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.0)
 message(STATUS "### Begin to configure project db ###")
 
 # 检测cmake运行操作系统/CPU/编译器
@@ -77,9 +77,9 @@ if (CMAKE_C_COMPILER_ID MATCHES "MSVC")
 
     # Windows下的build.bat命令
     if (CMAKE_BUILD_TYPE MATCHES "Release")
-        file(WRITE build/make.bat "devenv db.sln /build Release /project all_build")
+        file(WRITE build/make.bat "devenv db.sln /rebuild Release /project all_build")
     else()
-        file(WRITE build/make.bat "devenv db.sln /build Debug /project all_build")
+        file(WRITE build/make.bat "devenv db.sln /rebuild Debug /project all_build")
     endif()
 endif()
 
