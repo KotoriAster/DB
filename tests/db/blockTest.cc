@@ -151,7 +151,6 @@ TEST_CASE("db/block.h")
             buffer + BLOCK_SIZE - sizeof(unsigned int));
         REQUIRE(pslots == data.getSlotsPointer());
         REQUIRE(data.getFreespaceSize() == BLOCK_SIZE - 8 - sizeof(DataHeader));
-        REQUIRE(data.getGc() == 0);
 
         // 假设有5个slots槽位
         data.setSlots(5);
@@ -224,48 +223,38 @@ TEST_CASE("db/block.h")
         unsigned short size = data.getFreeSize();
         data.deallocate(sizeof(DataHeader) + 8);
         REQUIRE(data.getFreeSize() == size + 8);
-        REQUIRE(data.getGc() == sizeof(DataHeader) + 8);
         record.attach(buffer + sizeof(DataHeader) + 8, 8);
-        REQUIRE(record.length() == 8);
-        record.ref(iov, 2, &h);
-        unsigned short next =
-            be16toh(*reinterpret_cast<unsigned short *>(iov[0].iov_base));
-        REQUIRE(next == 0);
-        REQUIRE(iov[0].iov_len == 2);
-        unsigned short length =
-            be16toh(*reinterpret_cast<unsigned short *>(iov[1].iov_base));
-        REQUIRE(length == 8);
-        REQUIRE(iov[1].iov_len == 2);
+        REQUIRE(!record.isactive());
 
         // 回收第3个空间
         size = data.getFreeSize();
         data.deallocate(sizeof(DataHeader) + 2 * 8);
         REQUIRE(data.getFreeSize() == size + 712);
-        REQUIRE(data.getGc() == sizeof(DataHeader) + 2 * 8);
         record.attach(buffer + sizeof(DataHeader) + 2 * 8, 8);
-        REQUIRE(record.length() == 8); // 仍然是8字节
-        record.ref(iov, 2, &h);
-        next = be16toh(*reinterpret_cast<unsigned short *>(iov[0].iov_base));
-        REQUIRE(next == sizeof(DataHeader) + 8);
-        REQUIRE(iov[0].iov_len == 2);
-        length = be16toh(*reinterpret_cast<unsigned short *>(iov[1].iov_base));
-        REQUIRE(length == 712);
-        REQUIRE(iov[1].iov_len == 2);
+        REQUIRE(!record.isactive());
+
+        data.shrink();
+        size = data.getFreeSize();
+        REQUIRE(
+            size ==
+            BLOCK_SIZE - sizeof(DataHeader) - data.getTrailerSize() - 8);
+        unsigned short freespace = data.getFreeSpace();
+        REQUIRE(freespace == sizeof(DataHeader) + 8);
 
         // 回收第1个空间
         size = data.getFreeSize();
         data.deallocate(sizeof(DataHeader));
         REQUIRE(data.getFreeSize() == size + 8);
-        REQUIRE(data.getGc() == sizeof(DataHeader));
         record.attach(buffer + sizeof(DataHeader), 8);
-        REQUIRE(record.length() == 8); // 仍然是8字节
-        record.ref(iov, 2, &h);
-        next = be16toh(*reinterpret_cast<unsigned short *>(iov[0].iov_base));
-        REQUIRE(next == sizeof(DataHeader) + 2 * 8);
-        REQUIRE(iov[0].iov_len == 2);
-        length = be16toh(*reinterpret_cast<unsigned short *>(iov[1].iov_base));
-        REQUIRE(length == 8);
-        REQUIRE(iov[1].iov_len == 2);
+        REQUIRE(!record.isactive());
+
+        // shrink
+        data.shrink();
+        size = data.getFreeSize();
+        REQUIRE(
+            size == BLOCK_SIZE - sizeof(DataHeader) - data.getTrailerSize());
+        freespace = data.getFreeSpace();
+        REQUIRE(freespace == sizeof(DataHeader));
     }
 
 #if 0

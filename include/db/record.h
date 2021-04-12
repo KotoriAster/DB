@@ -86,7 +86,9 @@ class Record
     size_t startOfFields();
 
     // 标记TomeStone
-    inline void die() {}
+    inline void die() { *buffer_ |= MASK_TOMBSTONE; }
+    // 判断是否活跃
+    inline bool isactive() { return !(*buffer_ & MASK_TOMBSTONE); }
 };
 
 } // namespace db

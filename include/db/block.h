@@ -89,8 +89,7 @@ struct DataHeader : CommonHeader
     unsigned short freesize; // 空闲空间大小(2B)
     TimeStamp stamp;         // 时戳(8B)
     unsigned int next;       // 下一个数据块(4B)
-    unsigned short gc;       // 回收链表(2B)
-    unsigned short pad;      // 占位(2B)
+    unsigned int pad;        // 占位(4B)
 };
 
 // 元数据块头部
@@ -417,19 +416,6 @@ class DataBlock : public Block
         return !sum;
     }
 
-    // 获得回收链表头部
-    inline unsigned short getGc()
-    {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
-        return be16toh(header->gc);
-    }
-    // 设定回收链表头部
-    inline void setGc(unsigned short first)
-    {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
-        header->gc = htobe16(first);
-    }
-
     // TODO: allocate slots[]
     // 获取trailer大小
     inline unsigned short getTrailerSize()
@@ -462,8 +448,11 @@ class DataBlock : public Block
     unsigned char *allocate(unsigned short space);
     // 回收一个空间
     void deallocate(unsigned short offset);
-    // 回收gc资源
-    void shrinkGc();
+    // 回收tomestone资源
+    void shrink();
+
+    // 插入记录
+    bool insertRecord(struct iovec *iov, int iovcnt);
 };
 
 #if 0

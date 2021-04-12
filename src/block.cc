@@ -83,34 +83,43 @@ void DataBlock::deallocate(unsigned short offset)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
 
-    // 先获得Gc链表的头部
-    unsigned short next = getGc();
-    // 将释放的空间加到Gc的头部
-    setGc(offset);
-
-    // 修改freesize
+    // 设置tombstone
     Record record;
-    struct iovec iov[2];
     unsigned char *space = buffer_ + offset;
     record.attach(space, 8); // 只使用8个字节
+    record.die();
     // 先获取record的长度，TODO: record跨越block？？
     unsigned short length = (unsigned short) (record.length() + 7) / 8 * 8;
+    // 修改freesize
     setFreeSize(getFreeSize() + length);
-
-    // 设定记录指向后一个
-    next = htobe16(next);
-    iov[0].iov_base = (void *) &next;
-    iov[0].iov_len = sizeof(unsigned short);
-    length = htobe16(length);
-    iov[1].iov_base = (void *) &length;
-    iov[1].iov_len = sizeof(unsigned short);
-    unsigned char h = 0;
-    record.set(iov, 2, &h);
 }
 
-void DataBlock::shrinkGc()
+void DataBlock::shrink()
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+    unsigned short offset = sizeof(DataHeader);
+    unsigned short end = getFreeSpace();
+    unsigned char *last = buffer_ + offset; // 拷贝指针
+    unsigned short *slots = getSlotsPointer();
+
+    // 枚举所有record，然后向前移动
+    int index = 0;
+    while (offset < end) {
+        Record record;
+        record.attach(buffer_ + offset, 8);
+        unsigned short length = (unsigned short) record.allocLength();
+        if (record.isactive()) {
+            if (last < buffer_ + offset)
+                memcpy(last, buffer_ + offset, length); // 拷贝数据
+            slots[index++] = offset;                    // 设定slots槽位
+            last += length;                             // 移动last指针
+        }
+        offset += length;
+    }
+
+    // 设定freespace
+    end = (unsigned short) (last - buffer_);
+    setFreeSpace(end);
 }
 
 void DataBlock::clear(unsigned short spaceid)
@@ -131,8 +140,6 @@ void DataBlock::clear(unsigned short spaceid)
     setTimeStamp();
     // 设定slots
     setSlots(0);
-    // 设定Gc
-    setGc(0);
     // 设定freesize
     setFreeSize(BLOCK_SIZE - sizeof(DataHeader) - sizeof(Trailer));
     // 设定freespace

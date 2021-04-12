@@ -8,7 +8,7 @@
 #
 include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src)
 
-set(LIB_DB_IMPL integer.cc file.cc datatype.cc timestamp.cc record.cc)# block.cc)
+set(LIB_DB_IMPL integer.cc file.cc datatype.cc timestamp.cc record.cc block.cc)
 # schema.cc
 add_library(dbimpl STATIC ${LIB_DB_IMPL})
 # set(CMAKE_C_FLAGS "/D EXPORT ${CMAKE_C_FLAGS}")
