@@ -16,7 +16,7 @@ message(STATUS "Building OS: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "Building Processor: ${CMAKE_SYSTEM_PROCESSOR}")
 message(STATUS "Compiler: ${CMAKE_C_COMPILER_ID}")
 
-# 打开vobose选项
+# 打开verbose选项
 set(CMAKE_VERBOSE_MAKEFILE on)
 
 # 编译模式，Release/Debug，-DCMAKE_BUILD_TYPE=Release|Debug
@@ -75,11 +75,13 @@ if (CMAKE_C_COMPILER_ID MATCHES "MSVC")
     set(CMAKE_MODULE_LINKER_FLAGS_RELEASE ${CMAKE_LINKER_FLAGS_RELEASE})
     set(CMAKE_SHARED_LINKER_FLAGS_RELEASE ${CMAKE_LINKER_FLAGS_RELEASE})
 
-    # Windows下的build.bat命令
+    # Windows下的make.bat命令
     if (CMAKE_BUILD_TYPE MATCHES "Release")
-        file(WRITE build/make.bat "devenv db.sln /rebuild Release /project all_build")
+        file(WRITE build/remake.bat "devenv db.sln /rebuild Release /project all_build")
+        file(WRITE build/make.bat "devenv db.sln /build Release /project all_build")
     else()
-        file(WRITE build/make.bat "devenv db.sln /rebuild Debug /project all_build")
+        file(WRITE build/remake.bat "devenv db.sln /rebuild Debug /project all_build")
+        file(WRITE build/make.bat "devenv db.sln /build Debug /project all_build")
     endif()
 endif()
 

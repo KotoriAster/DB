@@ -5,7 +5,7 @@
 // block是记录、索引的存储单元。在MySQL和HBase中，存储单元与分配单位是分开的，一般来说，
 // 最小分配单元要比block大得多。
 // block的布局如下，每个slot占用2B，这要求block最大为64KB。由于记录和索引要求按照4B对
-// 齐，BLOCK_DATA、BLOCK_TRAILER也要求4B对齐。
+// 齐，BLOCK_DATA、BLOCK_TRAILER也要求8B对齐。
 //
 // +--------------------+
 // |   common header    |
@@ -35,143 +35,439 @@
 
 namespace db {
 
-const short BLOCK_TYPE_DATA = 0;  // 数据
-const short BLOCK_TYPE_INDEX = 1; // 索引
-const short BLOCK_TYPE_META = 2;  // 元数据
-const short BLOCK_TYPE_LOG = 3;   // wal日志
+const unsigned short BLOCK_TYPE_IDLE = 0;  // 空闲
+const unsigned short BLOCK_TYPE_SUPER = 1; // 超块
+const unsigned short BLOCK_TYPE_DATA = 2;  // 数据
+const unsigned short BLOCK_TYPE_INDEX = 3; // 索引
+const unsigned short BLOCK_TYPE_META = 4;  // 元数据
+const unsigned short BLOCK_TYPE_LOG = 5;   // wal日志
+
+const unsigned int SUPER_SIZE = 1024 * 4;  // 超块大小为4KB
+const unsigned int BLOCK_SIZE = 1024 * 16; // 一般块大小为16KB
+
+#if BYTE_ORDER == LITTLE_ENDIAN
+static const int MAGIC_NUMBER = 0x1ef0c6c1; // magic number
+#else
+static const int MAGIC_NUMBER = 0xc1c6f01e; // magic number
+#endif
+
+// 公共头部
+struct CommonHeader
+{
+    unsigned int magic;       // magic number(4B)
+    unsigned int spaceid;     // 表空间id(4B)
+    unsigned short type;      // block类型(2B)
+    unsigned short freespace; // 空闲记录链表(2B)
+};
+
+// 尾部
+struct Trailer
+{
+    unsigned short slots[2]; // slots占位(4B)
+    unsigned int checksum;   // 校验和(4B)
+};
+
+// 超块头部
+struct SuperHeader : CommonHeader
+{
+    unsigned int first; // 第1个数据块(4B)
+    TimeStamp stamp;    // 时戳(8B)
+    unsigned int idle;  // 空闲块(4B)
+    unsigned int pad;   // 填充位(4B)
+};
+
+// 空闲块头部
+struct IdleHeader : CommonHeader
+{
+    unsigned int next; // 后继指针(4B)
+};
+
+// 数据块头部
+struct DataHeader : CommonHeader
+{
+    unsigned short slots;    // slots[]长度(2B)
+    unsigned short freesize; // 空闲空间大小(2B)
+    TimeStamp stamp;         // 时戳(8B)
+    unsigned int next;       // 下一个数据块(4B)
+    unsigned short gc;       // 回收链表(2B)
+    unsigned short pad;      // 占位(2B)
+};
+
+// 元数据块头部
+struct MetaHeader : CommonHeader
+{
+    unsigned int next;   // 空闲块
+    TimeStamp stamp;     // 时戳
+    unsigned int tables; // 表个数
+};
 
 ////
 // @brief
-// 根block
+// 公共block
 //
-class Root
+class Block
 {
-  public:
-    static const int ROOT_SIZE = 1024 * 4; // root大小为4KB
-
-#if BYTE_ORDER == LITTLE_ENDIAN
-    static const int ROOT_MAGIC_NUMBER = 0x1ef0c6c1; // magic number
-#else
-    static const int ROOT_MAGIC_NUMBER = 0xc1c6f01e;  // magic number
-#endif
-    static const int ROOT_MAGIC_OFFSET = 0; // magic number偏移量
-    static const int ROOT_MAGIC_SIZE = 4;   // magic number大小4B
-
-    static const int ROOT_TYPE_OFFSET =
-        ROOT_MAGIC_OFFSET + ROOT_MAGIC_SIZE; // 类型偏移量
-    static const int ROOT_TYPE_SIZE = 2;     // 类型大小
-
-    static const int ROOT_TIMESTAMP_OFFSET =
-        ROOT_TYPE_OFFSET + ROOT_TYPE_SIZE;    // 时戳偏移量
-    static const int ROOT_TIMESTAMP_SIZE = 8; // 时戳大小
-
-    static const int ROOT_HEAD_OFFSET =
-        ROOT_TIMESTAMP_OFFSET + ROOT_TIMESTAMP_SIZE; // 链头偏移量
-    static const int ROOT_HEAD_SIZE = 4;             // 链头大小
-
-    static const int ROOT_GARBAGE_OFFSET =
-        ROOT_HEAD_OFFSET + ROOT_HEAD_SIZE;  // 空闲block链头偏移量
-    static const int ROOT_GARBAGE_SIZE = 4; // 空闲block链头大小
-
-    static const int ROOT_TRAILER_SIZE = 4; // checksum大小
-    static const int ROOT_TRAILER_OFFSET =  // checksum偏移量
-        ROOT_SIZE - ROOT_TRAILER_SIZE;
-
   protected:
     unsigned char *buffer_; // block对应的buffer
 
   public:
-    Root()
+    Block()
         : buffer_(NULL)
     {}
 
     // 关联buffer
     inline void attach(unsigned char *buffer) { buffer_ = buffer; }
-    // 清root
-    void clear(unsigned short type);
+
+    // 设定magic
+    inline void setMagic()
+    {
+        CommonHeader *header = reinterpret_cast<CommonHeader *>(buffer_);
+        header->magic = MAGIC_NUMBER;
+    }
+
+    // 获取表空间id
+    inline unsigned int getSpaceid()
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        return be32toh(header->spaceid);
+    }
+    // 设定表空间id
+    inline void setSpaceid(unsigned int spaceid)
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        header->spaceid = htobe32(spaceid);
+    }
 
     // 获取类型
     inline unsigned short getType()
     {
-        unsigned short type;
-        ::memcpy(&type, buffer_ + ROOT_TYPE_OFFSET, ROOT_TYPE_SIZE);
-        return be16toh(type);
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        return be16toh(header->type);
     }
     // 设定类型
     inline void setType(unsigned short type)
     {
-        type = htobe16(type);
-        ::memcpy(buffer_ + ROOT_TYPE_OFFSET, &type, ROOT_TYPE_SIZE);
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        header->type = htobe16(type);
+    }
+
+    // 获取空闲链头
+    inline unsigned short getFreeSpace()
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        return be16toh(header->freespace);
+    }
+    // 设定空闲链头
+    inline void setFreeSpace(unsigned short freespace)
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        header->freespace = htobe16(freespace);
+    }
+};
+
+////
+// @brief
+// 超块
+//
+class SuperBlock : public Block
+{
+  public:
+    // 关联buffer
+    inline void attach(unsigned char *buffer) { buffer_ = buffer; }
+    // 清超块
+    void clear(unsigned short spaceid);
+
+    // 获取第1个数据块
+    inline unsigned int getFirst()
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        return be32toh(header->first);
+    }
+    // 设定数据块链头
+    inline void setFirst(unsigned int first)
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        header->first = htobe32(first);
+    }
+
+    // 获取空闲块
+    inline unsigned int getIdle()
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        return be32toh(header->idle);
+    }
+    // 设定空闲块链头
+    inline void setIdle(unsigned int idle)
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        header->idle = htobe32(idle);
     }
 
     // 获取时戳
     inline TimeStamp getTimeStamp()
     {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
         TimeStamp ts;
-        ::memcpy(&ts, buffer_ + ROOT_TIMESTAMP_OFFSET, ROOT_TIMESTAMP_SIZE);
+        ::memcpy(&ts, &header->stamp, sizeof(TimeStamp));
         *((long long *) &ts) = be64toh(*((long long *) &ts));
         return ts;
     }
     // 设定时戳
-    inline void setTimeStamp(TimeStamp ts)
+    inline void setTimeStamp()
     {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        TimeStamp ts;
+        ts.now();
         *((long long *) &ts) = htobe64(*((long long *) &ts));
-        ::memcpy(buffer_ + ROOT_TIMESTAMP_OFFSET, &ts, ROOT_TIMESTAMP_SIZE);
-    }
-
-    // 获取block链头
-    inline unsigned int getHead()
-    {
-        unsigned int head;
-        ::memcpy(&head, buffer_ + ROOT_HEAD_OFFSET, ROOT_HEAD_SIZE);
-        head = be32toh(head);
-        return head;
-    }
-    // 设定block链头
-    inline void setHead(unsigned int head)
-    {
-        head = htobe32(head);
-        ::memcpy(buffer_ + ROOT_HEAD_OFFSET, &head, ROOT_HEAD_SIZE);
-    }
-
-    // 获取空闲链头
-    inline int getGarbage()
-    {
-        int garbage;
-        ::memcpy(&garbage, buffer_ + ROOT_GARBAGE_OFFSET, ROOT_GARBAGE_SIZE);
-        garbage = be32toh(garbage);
-        return garbage;
-    }
-    // 设定空闲链头
-    inline void setGarbage(int garbage)
-    {
-        garbage = htobe32(garbage);
-        ::memcpy(buffer_ + ROOT_GARBAGE_OFFSET, &garbage, ROOT_GARBAGE_SIZE);
+        ::memcpy(&header->stamp, &ts, sizeof(TimeStamp));
     }
 
     // 设定checksum
     inline void setChecksum()
     {
-        unsigned int check = 0;
-        ::memset(buffer_ + ROOT_TRAILER_OFFSET, 0, ROOT_TRAILER_SIZE);
-        check = checksum32(buffer_, ROOT_SIZE);
-        ::memcpy(buffer_ + ROOT_TRAILER_OFFSET, &check, ROOT_TRAILER_SIZE);
+        Trailer *trailer =
+            reinterpret_cast<Trailer *>(buffer_ + SUPER_SIZE - sizeof(Trailer));
+        trailer->checksum = 0;
+        trailer->checksum = checksum32(buffer_, SUPER_SIZE);
     }
     // 获取checksum
     inline unsigned int getChecksum()
     {
-        unsigned int check = 0;
-        ::memcpy(&check, buffer_ + ROOT_TRAILER_OFFSET, ROOT_TRAILER_SIZE);
-        return check;
+        Trailer *trailer =
+            reinterpret_cast<Trailer *>(buffer_ + SUPER_SIZE - sizeof(Trailer));
+        return trailer->checksum;
     }
     // 检验checksum
     inline bool checksum()
     {
         unsigned int sum = 0;
-        sum = checksum32(buffer_, ROOT_SIZE);
+        sum = checksum32(buffer_, SUPER_SIZE);
         return !sum;
     }
 };
+
+// TODO: slots???
+////
+// @brief
+// 元数据块
+//
+class MetaBlock : public Block
+{
+  public:
+    // 清超块
+    void clear();
+
+    // 获取空闲块
+    inline unsigned int getNext()
+    {
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
+        return be32toh(header->next);
+    }
+    // 设定block链头
+    inline void setNext(unsigned int next)
+    {
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
+        header->next = htobe32(next);
+    }
+
+    // 获取时戳
+    inline TimeStamp getTimeStamp()
+    {
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
+        TimeStamp ts;
+        ::memcpy(&ts, &header->stamp, sizeof(TimeStamp));
+        *((long long *) &ts) = be64toh(*((long long *) &ts));
+        return ts;
+    }
+    // 设定时戳
+    inline void setTimeStamp()
+    {
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
+        TimeStamp ts;
+        ts.now();
+        *((long long *) &ts) = htobe64(*((long long *) &ts));
+        ::memcpy(&header->stamp, &ts, sizeof(TimeStamp));
+    }
+
+    // 获取tables
+    inline unsigned int getTables()
+    {
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
+        return be32toh(header->tables);
+    }
+    // 设定tables
+    inline void setTables(unsigned int tables)
+    {
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
+        header->tables = htobe32(tables);
+    }
+
+    // 设定checksum
+    inline void setChecksum()
+    {
+        Trailer *trailer =
+            reinterpret_cast<Trailer *>(buffer_ + BLOCK_SIZE - sizeof(Trailer));
+        trailer->checksum = 0;
+        trailer->checksum = checksum32(buffer_, BLOCK_SIZE);
+    }
+    // 获取checksum
+    inline unsigned int getChecksum()
+    {
+        Trailer *trailer =
+            reinterpret_cast<Trailer *>(buffer_ + BLOCK_SIZE - sizeof(Trailer));
+        return trailer->checksum;
+    }
+    // 检验checksum
+    inline bool checksum()
+    {
+        unsigned int sum = 0;
+        sum = checksum32(buffer_, BLOCK_SIZE);
+        return !sum;
+    }
+};
+
+////
+// @brief
+// 数据块
+//
+class DataBlock : public Block
+{
+  public:
+    // 清超块
+    void clear(unsigned short spaceid);
+
+    // 获取空闲块
+    inline unsigned int getNext()
+    {
+        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        return be32toh(header->next);
+    }
+    // 设定block链头
+    inline void setNext(unsigned int next)
+    {
+        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        header->next = htobe32(next);
+    }
+
+    // 获取时戳
+    inline TimeStamp getTimeStamp()
+    {
+        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        TimeStamp ts;
+        ::memcpy(&ts, &header->stamp, sizeof(TimeStamp));
+        *((long long *) &ts) = be64toh(*((long long *) &ts));
+        return ts;
+    }
+    // 设定时戳
+    inline void setTimeStamp()
+    {
+        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        TimeStamp ts;
+        ts.now();
+        *((long long *) &ts) = htobe64(*((long long *) &ts));
+        ::memcpy(&header->stamp, &ts, sizeof(TimeStamp));
+    }
+
+    // 获取空闲空间大小
+    inline unsigned short getFreeSize()
+    {
+        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        return be16toh(header->freesize);
+    }
+    // 设定空闲空间大小
+    inline void setFreeSize(unsigned short size)
+    {
+        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        header->freesize = htobe16(size);
+    }
+
+    // 设置slot存储的偏移量
+    inline void setSlots(unsigned short slots)
+    {
+        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        header->slots = htobe16(slots);
+    }
+    // 获取slot存储的偏移量
+    inline unsigned short getSlots()
+    {
+        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        return be16toh(header->slots);
+    }
+
+    // 设定checksum
+    inline void setChecksum()
+    {
+        Trailer *trailer =
+            reinterpret_cast<Trailer *>(buffer_ + BLOCK_SIZE - sizeof(Trailer));
+        trailer->checksum = 0;
+        trailer->checksum = checksum32(buffer_, BLOCK_SIZE);
+    }
+    // 获取checksum
+    inline unsigned int getChecksum()
+    {
+        Trailer *trailer =
+            reinterpret_cast<Trailer *>(buffer_ + BLOCK_SIZE - sizeof(Trailer));
+        return trailer->checksum;
+    }
+    // 检验checksum
+    inline bool checksum()
+    {
+        unsigned int sum = 0;
+        sum = checksum32(buffer_, BLOCK_SIZE);
+        return !sum;
+    }
+
+    // 获得回收链表头部
+    inline unsigned short getGc()
+    {
+        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        return be16toh(header->gc);
+    }
+    // 设定回收链表头部
+    inline void setGc(unsigned short first)
+    {
+        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        header->gc = htobe16(first);
+    }
+
+    // TODO: allocate slots[]
+    // 获取trailer大小
+    inline unsigned short getTrailerSize()
+    {
+        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        Trailer *trailer =
+            reinterpret_cast<Trailer *>(buffer_ + BLOCK_SIZE - sizeof(Trailer));
+        return (be16toh(header->slots) * sizeof(unsigned short) +
+                sizeof(unsigned int) + 7) /
+               8 * 8;
+    }
+    // 获取slots[]指针
+    inline unsigned short *getSlotsPointer()
+    {
+        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        Trailer *trailer =
+            reinterpret_cast<Trailer *>(buffer_ + BLOCK_SIZE - sizeof(Trailer));
+        return reinterpret_cast<unsigned short *>(
+                   buffer_ + BLOCK_SIZE - sizeof(unsigned int)) -
+               be16toh(header->slots);
+    }
+    // 获取freespace空间大小
+    inline unsigned short getFreespaceSize()
+    {
+        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        return BLOCK_SIZE - getTrailerSize() - be16toh(header->freespace);
+    }
+
+    // 分配一个空间，直接返回指针
+    unsigned char *allocate(unsigned short space);
+    // 回收一个空间
+    void deallocate(unsigned short offset);
+    // 回收gc资源
+    void shrinkGc();
+};
+
+#if 0
+////
 
 // 通用block头部
 class Block
@@ -180,11 +476,11 @@ class Block
     // 公共头部字段偏移量
     static const int BLOCK_SIZE = 1024 * 16; // block大小为16KB
 
-#if BYTE_ORDER == LITTLE_ENDIAN
+#    if BYTE_ORDER == LITTLE_ENDIAN
     static const int BLOCK_MAGIC_NUMBER = 0x1ef0c6c1; // magic number
-#else
+#    else
     static const int BLOCK_MAGIC_NUMBER = 0xc1c6f01e; // magic number
-#endif
+#    endif
     static const int BLOCK_MAGIC_OFFSET = 0; // magic number偏移量
     static const int BLOCK_MAGIC_SIZE = 4;   // magic number大小4B
 
@@ -382,33 +678,7 @@ class Block
     bool allocate(const unsigned char *header, struct iovec *iov, int iovcnt);
 };
 
-class MetaBlock : public Block
-{
-  public:
-    static const int META_TABLES_OFFSET =
-        BLOCK_FREESPACE_OFFSET + BLOCK_FREESPACE_SIZE; // 表个数偏移量
-    static const int META_TABLES_SIZE = 4;             // 表个数大小4B
-
-    static const short META_DEFAULT_FREESPACE =
-        META_TABLES_OFFSET + META_TABLES_SIZE; // 空闲空间缺省偏移量
-
-  public:
-    void clear(unsigned int blockid);
-
-    // 获得表个数
-    inline unsigned int getTableCount()
-    {
-        unsigned int count;
-        ::memcpy(&count, buffer_ + META_TABLES_OFFSET, META_TABLES_SIZE);
-        return be32toh(count);
-    }
-    // 设定表个数
-    inline void setTableCount(unsigned int count)
-    {
-        count = htobe32(count);
-        ::memcpy(buffer_ + META_TABLES_OFFSET, &count, META_TABLES_SIZE);
-    }
-};
+#endif
 
 #if 0
 // 数据block

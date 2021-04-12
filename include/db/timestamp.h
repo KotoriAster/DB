@@ -1,7 +1,7 @@
 ////
 // @file timestamp.h
 // @brief
-// 时辍
+// 时戳
 //
 // @author niexw
 // @email niexiaowen@uestc.edu.cn
@@ -14,7 +14,7 @@
 
 namespace db {
 
-// 时辍
+// 时戳
 struct TimeStamp
 {
     std::chrono::system_clock::time_point stamp_;

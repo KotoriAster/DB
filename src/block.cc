@@ -11,94 +11,134 @@
 
 namespace db {
 
-void Block::clear(int spaceid, int blockid)
+void SuperBlock::clear(unsigned short spaceid)
 {
-    spaceid = htobe32(spaceid);
-    blockid = htobe32(blockid);
     // 清buffer
-    ::memset(buffer_, 0, BLOCK_SIZE);
-    // 设置magic number
-    ::memcpy(
-        buffer_ + BLOCK_MAGIC_OFFSET, &BLOCK_MAGIC_NUMBER, BLOCK_MAGIC_SIZE);
-    // 设置spaceid
-    ::memcpy(buffer_ + BLOCK_SPACEID_OFFSET, &spaceid, BLOCK_SPACEID_SIZE);
-    // 设置blockid
-    ::memcpy(buffer_ + BLOCK_NUMBER_OFFSET, &blockid, BLOCK_NUMBER_SIZE);
-    // 设置freespace
-    unsigned short data = htobe16(BLOCK_DEFAULT_FREESPACE);
-    ::memcpy(buffer_ + BLOCK_FREESPACE_OFFSET, &data, BLOCK_FREESPACE_SIZE);
-    // 设置checksum
-    int checksum = BLOCK_DEFAULT_CHECKSUM;
-    ::memcpy(buffer_ + BLOCK_CHECKSUM_OFFSET, &checksum, BLOCK_CHECKSUM_SIZE);
-}
+    ::memset(buffer_, 0, SUPER_SIZE);
+    SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
 
-void Root::clear(unsigned short type)
-{
-    // 清buffer
-    ::memset(buffer_, 0, ROOT_SIZE);
     // 设置magic number
-    ::memcpy(
-        buffer_ + Block::BLOCK_MAGIC_OFFSET,
-        &Block::BLOCK_MAGIC_NUMBER,
-        Block::BLOCK_MAGIC_SIZE);
+    header->magic = MAGIC_NUMBER;
+    // 设定spaceid
+    setSpaceid(spaceid);
     // 设定类型
-    setType(type);
+    setType(BLOCK_TYPE_SUPER);
     // 设定时戳
-    TimeStamp ts;
-    ts.now();
-    setTimeStamp(ts);
+    setTimeStamp();
+    // 设定数据块
+    setFirst(0);
+    // 设定空闲块，缺省从1开始
+    setIdle(1);
+    // 设定空闲空间
+    setFreeSpace(sizeof(SuperHeader));
     // 设置checksum
     setChecksum();
 }
 
-void MetaBlock::clear(unsigned int blockid)
+void MetaBlock::clear()
 {
-    unsigned int spaceid = 0xffffffff; // -1表示meta
-    blockid = htobe32(blockid);
     // 清buffer
-    ::memset(buffer_, 0, BLOCK_SIZE);
-    // 设置magic number
-    ::memcpy(
-        buffer_ + BLOCK_MAGIC_OFFSET, &BLOCK_MAGIC_NUMBER, BLOCK_MAGIC_SIZE);
-    // 设置spaceid
-    ::memcpy(buffer_ + BLOCK_SPACEID_OFFSET, &spaceid, BLOCK_SPACEID_SIZE);
-    // 设置blockid
-    ::memcpy(buffer_ + BLOCK_NUMBER_OFFSET, &blockid, BLOCK_NUMBER_SIZE);
-    // 设置freespace
-    unsigned short data = htobe16(META_DEFAULT_FREESPACE);
-    ::memcpy(buffer_ + BLOCK_FREESPACE_OFFSET, &data, BLOCK_FREESPACE_SIZE);
+    ::memset(buffer_, 0, SUPER_SIZE);
+    MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
+
+    // 设定magic
+    header->magic = MAGIC_NUMBER;
+    // 设定spaceid
+    setSpaceid(0);
     // 设定类型
     setType(BLOCK_TYPE_META);
-    // 设置checksum
+    // 设定freespace
+    setFreeSpace(sizeof(MetaHeader));
+    // 设定空闲块
+    setNext(0);
+    // 设定时戳
+    setTimeStamp();
+    // 设定tables
+    setTables(0);
+    // 设定校验和
     setChecksum();
 }
 
-bool Block::allocate(const unsigned char *header, struct iovec *iov, int iovcnt)
+unsigned char *DataBlock::allocate(unsigned short space)
 {
-    // 判断是否有空间
-    unsigned short length = getFreeLength();
-    if (length == 0) return false;
+    DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+    if (be16toh(header->freesize) < space) return NULL;
 
-    // 判断能否分配
-    std::pair<size_t, size_t> ret = Record::size(iov, iovcnt);
-    length -= 2; // 一个slot占2字节
-    if (ret.first > length) return false;
+    if (getFreespaceSize() >= space) {
+        unsigned char *ret = buffer_ + be16toh(header->freespace);
+        // 设定空闲空间大小
+        unsigned short size = (space + 7) / 8 * 8;
+        unsigned short fsize = be16toh(header->freesize) - size;
+        setFreeSize(fsize);
+        // 设定freespace偏移量
+        setFreeSpace(be16toh(header->freespace) + size);
+        return ret;
+    } else {
+        // TODO: shrink
+        return NULL;
+    }
+}
 
-    // 写入记录
+void DataBlock::deallocate(unsigned short offset)
+{
+    DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+
+    // 先获得Gc链表的头部
+    unsigned short next = getGc();
+    // 将释放的空间加到Gc的头部
+    setGc(offset);
+
+    // 修改freesize
     Record record;
-    unsigned short oldf = getFreespace();
-    record.attach(buffer_ + oldf, length);
-    unsigned short pos = (unsigned short) record.set(iov, iovcnt, header);
+    struct iovec iov[2];
+    unsigned char *space = buffer_ + offset;
+    record.attach(space, 8); // 只使用8个字节
+    // 先获取record的长度，TODO: record跨越block？？
+    unsigned short length = (unsigned short) (record.length() + 7) / 8 * 8;
+    setFreeSize(getFreeSize() + length);
 
-    // 调整freespace
-    setFreespace(pos + oldf);
-    // 写slot
-    unsigned short slots = getSlotsNum();
-    setSlotsNum(slots + 1); // 增加slots数目
-    setSlot(slots, oldf);   // 第slots个
+    // 设定记录指向后一个
+    next = htobe16(next);
+    iov[0].iov_base = (void *) &next;
+    iov[0].iov_len = sizeof(unsigned short);
+    length = htobe16(length);
+    iov[1].iov_base = (void *) &length;
+    iov[1].iov_len = sizeof(unsigned short);
+    unsigned char h = 0;
+    record.set(iov, 2, &h);
+}
 
-    // slots未排序，同时需要setChecksum
-    return true;
+void DataBlock::shrinkGc()
+{
+    DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+}
+
+void DataBlock::clear(unsigned short spaceid)
+{
+    // 清buffer
+    ::memset(buffer_, 0, SUPER_SIZE);
+    DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+
+    // 设定magic
+    header->magic = MAGIC_NUMBER;
+    // 设定spaceid
+    setSpaceid(spaceid);
+    // 设定类型
+    setType(BLOCK_TYPE_DATA);
+    // 设定空闲块
+    setNext(0);
+    // 设定时戳
+    setTimeStamp();
+    // 设定slots
+    setSlots(0);
+    // 设定Gc
+    setGc(0);
+    // 设定freesize
+    setFreeSize(BLOCK_SIZE - sizeof(DataHeader) - sizeof(Trailer));
+    // 设定freespace
+    setFreeSpace(sizeof(DataHeader));
+    // 设定校验和
+    setChecksum();
 }
 
 } // namespace db

@@ -12,44 +12,82 @@
 namespace db {
 
 // TODO: 加上log
-std::pair<size_t, size_t> Record::size(const iovec *iov, int iovcnt)
+
+size_t Record::size(const iovec *iov, int iovcnt)
 {
-    size_t s1 = 0, s2 = 0;
-
+    size_t iovoff = 0; // 字段偏移量，第0个字段的偏移量为0
+    size_t total = 0;  // 整个记录长度
     Integer it;
-    for (int i = 0; i < iovcnt; ++i) {
-        it.set(iov[i].iov_len);
-        s1 += it.size() + iov[i].iov_len;
-        s2 += it.size();
-    }
-    s1 += HEADER_SIZE; // header
-    it.set(s1);
-    s1 += it.size(); // 整个记录长度
-    s2 += it.size(); // header偏移量
 
-    return std::pair<size_t, size_t>(s1, s2);
+    // 累加各个字段的长度
+    for (int i = 0; i < iovcnt; ++i) {
+        it.set(iovoff);
+        total += it.size() + iov[i].iov_len;
+        iovoff += iov[i].iov_len;
+    }
+
+    // 再加上总长度
+    it.set(total);
+    total += it.size() + 1;
+
+    return total;
 }
 
-size_t Record::set(const iovec *iov, int iovcnt, const unsigned char *header)
+size_t Record::startOfoffsets()
 {
-    // 偏移量
-    unsigned int offset = 0;
+    Integer it;
+    it.decode((char *) buffer_ + 1, length_ - 1);
+    return it.size() + 1;
+}
 
-    // 先计算所需空间大小
-    std::pair<size_t, size_t> s1 = size(iov, iovcnt);
-    if ((size_t) length_ < s1.first)
+size_t Record::startOfFields()
+{
+    size_t offset = 1;
+
+    // 总长度所占大小
+    Integer it;
+    bool ret = it.decode((char *) buffer_ + 1, length_ - 1);
+    if (!ret)
         return 0;
     else
-        length_ = (unsigned short) s1.second;
+        offset += it.size();
+
+    // 枚举所有字段长度
+    while (true) {
+        if (offset >= length_) return 0;
+        ret = it.decode((char *) buffer_ + offset, length_ - offset);
+        if (!ret)
+            return 0;
+        else
+            offset += it.size();
+
+        // 找到尾部
+        if (it.value_ == 0) break;
+    }
+
+    return offset;
+}
+
+bool Record::set(const iovec *iov, int iovcnt, const unsigned char *header)
+{
+    // 偏移量
+    unsigned int offset = 1;
+
+    // 先计算所需空间大小
+    size_t total = size(iov, iovcnt);
+    if ((size_t) length_ < total) return false;
+
+    // 输出头部
+    memcpy(buffer_, header, HEADER_SIZE);
 
     // 输出记录长度
     Integer it;
-    it.set(s1.first);
+    it.set(total);
     it.encode((char *) buffer_ + offset, length_);
     offset += (unsigned int) it.size();
 
     // 输出字段偏移量数组
-    size_t len = HEADER_SIZE;
+    size_t len = 0;
     for (int i = 0; i < iovcnt; ++i)
         len += iov[i].iov_len; // 计算总长
     // 逆序输出
@@ -60,45 +98,41 @@ size_t Record::set(const iovec *iov, int iovcnt, const unsigned char *header)
         offset += (unsigned int) it.size();
     }
 
-    // 输出头部
-    memcpy(buffer_ + offset, header, HEADER_SIZE);
-
     // 顺序输出各字段
     for (int i = 0; i < iovcnt; ++i) {
         memcpy(buffer_ + offset, iov[i].iov_base, iov[i].iov_len);
         offset += (unsigned int) iov[i].iov_len;
     }
 
-#if 0
-    // 输出padding
-    size_t s2 = offset % ALIGN_SIZE;
-    if (s2)
-        for (size_t i = 0; i < ALIGN_SIZE - s2; ++i) {
-            this->buffer_[offset] = 0;
-            offset;
-        }
-#endif
-
     // 设置length
-    size_t ret = (s1.first + ALIGN_SIZE - 1) / ALIGN_SIZE * ALIGN_SIZE;
-    length_ = (unsigned short) ret;
+    length_ =
+        (unsigned short) (total + ALIGN_SIZE - 1) / ALIGN_SIZE * ALIGN_SIZE;
 
-    return ret;
+    // 输出padding
+    if (total < length_)
+        for (size_t i = 0; i < length_ - total; ++i)
+            this->buffer_[length_ - i] = 0;
+
+    return true;
 }
 
 size_t Record::length()
 {
     Integer it;
-    return it.decode((char *) buffer_, length_) ? it.value_ : 0;
+    return it.decode((char *) buffer_ + 1, length_) ? it.value_ : 0;
 }
 
 size_t Record::fields()
 {
-    // bypass总长
+    unsigned short offset = 1; // 含头部字段
+
+    // 计算总长度的字节数
     Integer it;
-    bool ret = it.decode((char *) buffer_, length_);
-    if (!ret) return 0;
-    unsigned short offset = it.size();
+    bool ret = it.decode((char *) buffer_ + 1, length_);
+    if (!ret)
+        return 0;
+    else
+        offset += it.size();
 
     // 枚举所有字段长度
     size_t total = 0;
@@ -112,7 +146,7 @@ size_t Record::fields()
 
         ++total;
         // 找到尾部
-        if (it.value_ == (unsigned long) HEADER_SIZE) break;
+        if (it.value_ == 0) break;
     }
 
     return total;
@@ -120,35 +154,35 @@ size_t Record::fields()
 
 bool Record::get(iovec *iov, int iovcnt, unsigned char *header)
 {
+    size_t offset = 1; // 偏移量
+
+    // 拷贝header
     if (header == NULL) return false;
-    size_t offset = 0;
+    ::memcpy(header, buffer_, HEADER_SIZE);
 
     // 总长
-    size_t length = 0;
     Integer it;
-    bool ret = it.decode((char *) buffer_, length_);
+    bool ret = it.decode((char *) buffer_ + 1, length_);
     if (!ret) return false;
-    length = it.get();
+    size_t length = it.get(); // 记录总长度
+    offset += it.size();
 
     // 枚举所有字段长度
-    size_t total = 0;
-    offset += it.size();
+    size_t index = 0;
     std::vector<size_t> vec(iovcnt); // 存放各字段长度
     while (true) {
         if (offset >= length_) return false;
         ret = it.decode((char *) buffer_ + offset, length_ - offset);
         if (!ret) return false;
 
-        vec[total] = it.get(); // 临时存放偏移量，注意是逆序
-        if (++total > (size_t) iovcnt) return false;
+        vec[index] = it.get(); // 临时存放偏移量，注意是逆序
+        if (++index > (size_t) iovcnt) return false;
 
         // 找到尾部
-        if (it.value_ == (unsigned long) HEADER_SIZE)
-            break;
-        else
-            offset += it.size();
+        offset += it.size();
+        if (it.value_ == 0) break;
     }
-    if (total != (size_t) iovcnt) return false; // 字段数目不对
+    if (index != (size_t) iovcnt) return false; // 字段数目不对
     // 逆序，先交换
     for (int i = 0; i < iovcnt / 2; ++i) {
         size_t tmp = vec[i];
@@ -164,15 +198,11 @@ bool Record::get(iovec *iov, int iovcnt, unsigned char *header)
             iov[i].iov_len = vec[i];
     }
     // 最后一个字段长度
-    vec[iovcnt - 1] = length - vec[iovcnt - 1] - offset - HEADER_SIZE;
+    vec[iovcnt - 1] = length - vec[iovcnt - 1] - offset;
     if (vec[iovcnt - 1] > iov[iovcnt - 1].iov_len)
         return false;
     else
         iov[iovcnt - 1].iov_len = vec[iovcnt - 1];
-
-    // 拷贝header
-    ::memcpy(header, buffer_ + offset, HEADER_SIZE);
-    offset += HEADER_SIZE;
 
     // 拷贝字段
     for (int i = 0; i < iovcnt; ++i) {
@@ -180,64 +210,60 @@ bool Record::get(iovec *iov, int iovcnt, unsigned char *header)
         offset += iov[i].iov_len;
     }
 
-#if 0
-    // padding
-    size_t s2 = offset % ALIGN_SIZE;
-    if (s2) offset += ALIGN_SIZE - s2;
-#endif
-
     return true;
 }
 
 bool Record::ref(iovec *iov, int iovcnt, unsigned char *header)
 {
+    size_t offset = 1; // 偏移量
+
+    // 拷贝header
     if (header == NULL) return false;
-    size_t offset = 0;
+    ::memcpy(header, buffer_, HEADER_SIZE);
 
     // 总长
-    size_t length = 0;
     Integer it;
-    bool ret = it.decode((char *) buffer_, length_);
+    bool ret = it.decode((char *) buffer_ + 1, length_);
     if (!ret) return false;
-    length = it.get();
+    size_t length = it.get(); // 记录总长度
+    offset += it.size();
 
     // 枚举所有字段长度
-    size_t total = 0;
-    offset += it.size();
+    size_t index = 0;
     std::vector<size_t> vec(iovcnt); // 存放各字段长度
     while (true) {
         if (offset >= length_) return false;
         ret = it.decode((char *) buffer_ + offset, length_ - offset);
         if (!ret) return false;
 
-        vec[total] = it.get(); // 临时存放偏移量，注意是逆序
-        if (++total > (size_t) iovcnt) return false;
+        vec[index] = it.get(); // 临时存放偏移量，注意是逆序
+        if (++index > (size_t) iovcnt) return false;
 
         // 找到尾部
-        if (it.value_ == (unsigned long) HEADER_SIZE)
-            break;
-        else
-            offset += it.size();
+        offset += it.size();
+        if (it.value_ == 0) break;
     }
-    if (total != (size_t) iovcnt) return false; // 字段数目不对
+    if (index != (size_t) iovcnt) return false; // 字段数目不对
     // 逆序，先交换
     for (int i = 0; i < iovcnt / 2; ++i) {
         size_t tmp = vec[i];
         vec[i] = vec[iovcnt - i - 1];
         vec[iovcnt - i - 1] = tmp;
     }
-    // 设置长度
+    // check长度
     for (int i = 0; i < iovcnt - 1; ++i) {
         vec[i] = vec[i + 1] - vec[i];
-        iov[i].iov_len = vec[i];
+        if (vec[i] > iov[i].iov_len)
+            return false; // 要求iov长度足够
+        else
+            iov[i].iov_len = vec[i];
     }
     // 最后一个字段长度
-    vec[iovcnt - 1] = length - vec[iovcnt - 1] - offset - HEADER_SIZE;
-    iov[iovcnt - 1].iov_len = vec[iovcnt - 1];
-
-    // 拷贝header
-    ::memcpy(header, buffer_ + offset, HEADER_SIZE);
-    offset += HEADER_SIZE;
+    vec[iovcnt - 1] = length - vec[iovcnt - 1] - offset;
+    if (vec[iovcnt - 1] > iov[iovcnt - 1].iov_len)
+        return false;
+    else
+        iov[iovcnt - 1].iov_len = vec[iovcnt - 1];
 
     // 引用各字段
     for (int i = 0; i < iovcnt; ++i) {
@@ -245,6 +271,113 @@ bool Record::ref(iovec *iov, int iovcnt, unsigned char *header)
         offset += iov[i].iov_len;
     }
 
+    return true;
+}
+
+bool Record::getByIndex(char *buffer, unsigned int *len, unsigned int idx)
+{
+    size_t offset = 1; // 偏移量
+
+    // 总长
+    Integer it;
+    bool ret = it.decode((char *) buffer_ + 1, length_);
+    if (!ret) return false;
+    size_t length = it.get(); // 记录总长度
+    offset += it.size();
+
+    // 枚举所有字段长度
+    size_t index = 0;
+    std::vector<size_t> vec; // 存放各字段长度
+    while (true) {
+        if (offset >= length_) return false;
+        ret = it.decode((char *) buffer_ + offset, length_ - offset);
+        if (!ret) return false;
+
+        vec.push_back(it.get()); // 临时存放偏移量，注意是逆序
+        ++index;
+
+        // 找到尾部
+        offset += it.size();
+        if (it.value_ == 0) break;
+    }
+    if (idx >= index) return false;
+    // 逆序，先交换
+    for (int i = 0; i < index / 2; ++i) {
+        size_t tmp = vec[i];
+        vec[i] = vec[index - i - 1];
+        vec[index - i - 1] = tmp;
+    }
+
+    // 计算长度
+    std::vector<size_t> lvec; // 存放各字段长度
+    for (int i = 0; i < index - 1; ++i) {
+        lvec.push_back(vec[i + 1] - vec[i]);
+        if (i == idx) {
+            if (*len < lvec[idx]) return false;
+            *len = (unsigned int) lvec[idx];
+            memcpy(buffer, buffer_ + offset + vec[idx], lvec[idx]);
+            return true;
+        }
+    }
+    // 最后一个字段长度
+    lvec.push_back(length - vec[index - 1] - offset);
+    if (*len < lvec[idx]) return false;
+    *len = (unsigned int) lvec[idx];
+    memcpy(buffer, buffer_ + offset + vec[idx], lvec[idx]);
+    return true;
+}
+
+bool Record::refByIndex(
+    unsigned char **buffer,
+    unsigned int *len,
+    unsigned int idx)
+{
+    size_t offset = 1; // 偏移量
+
+    // 总长
+    Integer it;
+    bool ret = it.decode((char *) buffer_ + 1, length_);
+    if (!ret) return false;
+    size_t length = it.get(); // 记录总长度
+    offset += it.size();
+
+    // 枚举所有字段长度
+    size_t index = 0;
+    std::vector<size_t> vec; // 存放各字段长度
+    while (true) {
+        if (offset >= length_) return false;
+        ret = it.decode((char *) buffer_ + offset, length_ - offset);
+        if (!ret) return false;
+
+        vec.push_back(it.get()); // 临时存放偏移量，注意是逆序
+        ++index;
+
+        // 找到尾部
+        offset += it.size();
+        if (it.value_ == 0) break;
+    }
+    if (idx >= index) return false;
+    // 逆序，先交换
+    for (int i = 0; i < index / 2; ++i) {
+        size_t tmp = vec[i];
+        vec[i] = vec[index - i - 1];
+        vec[index - i - 1] = tmp;
+    }
+
+    // 计算长度
+    std::vector<size_t> lvec; // 存放各字段长度
+    for (int i = 0; i < index - 1; ++i) {
+        lvec.push_back(vec[i + 1] - vec[i]);
+        if (i == idx) {
+            *len = (unsigned int) lvec[idx];
+            *buffer = buffer_ + offset + vec[idx];
+            return true;
+        }
+    }
+    // 最后一个字段长度
+    lvec.push_back(length - vec[index - 1] - offset);
+    *len = (unsigned int) lvec[idx];
+    *buffer = buffer_ + offset + vec[idx];
     return true;
 }
 

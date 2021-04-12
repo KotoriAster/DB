@@ -3,12 +3,13 @@
 // @brief
 // 定义数据库记录
 // 采用类似MySQL的记录方案，一条记录分为四个部分：
-// 记录总长度+字段长度数组+Header+字段
+// Header+记录总长度+字段长度数组+字段
 // 1. 记录总长度从最开始算；
 // 2. 字段长度是一个逆序变长数组，记录每条记录从Header开始的头部偏移量位置；
 // 3. Header存放一些相关信息，1B；
 // 4. 然后是各字段顺序摆放；
 //
+// Header中1B的表示如下：
 // | T | M | x | x | x | x | x | x |
 //   ^   ^
 //   |   |
@@ -37,10 +38,8 @@ class Record
     static const int HEADER_SIZE = 1; // 头部1B
     static const int ALIGN_SIZE = 8;  // 按8B对齐
 
-    static const int BYTE_TOMBSTONE = 1; // tombstone在header的第1字节
     static const unsigned char MASK_TOMBSTONE = 0x80; // tombstone掩码
-    static const int BYTE_MIMIMUM = 1; // 最小记录标记在header的第1字节
-    static const unsigned char MASK_MINIMUM = 0x40; // 最小记录掩码
+    static const unsigned char MASK_MINIMUM = 0x40;   // 最小记录掩码
 
   private:
     unsigned char *buffer_; // 记录buffer
@@ -59,21 +58,35 @@ class Record
         length_ = length;
     }
     // 整个记录长度+header偏移量
-    static std::pair<size_t, size_t> size(const iovec *iov, int iovcnt);
+    static size_t size(const iovec *iov, int iovcnt);
 
     // 向buffer里写各个域，返回按照对齐后的长度
-    size_t set(const iovec *iov, int iovcnt, const unsigned char *header);
-    // 从buffer获取各字段
+    bool set(const iovec *iov, int iovcnt, const unsigned char *header);
+    // 从buffer拷贝各字段
     bool get(iovec *iov, int iovcnt, unsigned char *header);
+    // 从buffer拷贝某个字段
+    bool getByIndex(char *buffer, unsigned int *len, unsigned int index);
     // 从buffer引用各字段
     bool ref(iovec *iov, int iovcnt, unsigned char *header);
+    // 从buffer引用某个字段
+    bool
+    refByIndex(unsigned char **buffer, unsigned int *len, unsigned int index);
     // TODO:
     void dump(char *buf, size_t len);
 
     // 获得记录总长度，包含头部+变长偏移数组+长度+记录
     size_t length();
+    // 分配长度
+    inline size_t allocLength() { return length_; }
     // 获取记录字段个数
     size_t fields();
+    // 变长偏移数组的起始位置
+    size_t startOfoffsets();
+    // 记录起始位置
+    size_t startOfFields();
+
+    // 标记TomeStone
+    inline void die() {}
 };
 
 } // namespace db
