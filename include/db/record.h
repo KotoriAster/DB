@@ -25,8 +25,15 @@
 #define __DB_RECORD_H__
 
 #include <utility>
+#include <vector>
 #include "./config.h"
 #include "./integer.h"
+
+struct iovec
+{
+    void *iov_base; /* Pointer to data.  */
+    size_t iov_len; /* Length of data.  */
+};
 
 namespace db {
 
@@ -58,16 +65,16 @@ class Record
         length_ = length;
     }
     // 整个记录长度+header偏移量
-    static size_t size(const iovec *iov, int iovcnt);
+    static size_t size(std::vector<struct iovec> &iov);
 
     // 向buffer里写各个域，返回按照对齐后的长度
-    bool set(const iovec *iov, int iovcnt, const unsigned char *header);
+    bool set(std::vector<struct iovec> &iov, const unsigned char *header);
     // 从buffer拷贝各字段
-    bool get(iovec *iov, int iovcnt, unsigned char *header);
+    bool get(std::vector<struct iovec> &iov, unsigned char *header);
     // 从buffer拷贝某个字段
     bool getByIndex(char *buffer, unsigned int *len, unsigned int index);
     // 从buffer引用各字段
-    bool ref(iovec *iov, int iovcnt, unsigned char *header);
+    bool ref(std::vector<struct iovec> &iov, unsigned char *header);
     // 从buffer引用某个字段
     bool
     refByIndex(unsigned char **buffer, unsigned int *len, unsigned int index);

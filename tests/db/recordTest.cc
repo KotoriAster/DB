@@ -13,7 +13,7 @@ TEST_CASE("db/record.h")
 {
     SECTION("size")
     {
-        struct iovec iov[4];
+        std::vector<struct iovec> iov(4);
 
         const char *table = "table.db";
 
@@ -30,14 +30,14 @@ TEST_CASE("db/record.h")
         iov[3].iov_base = &length;
         iov[3].iov_len = sizeof(size_t);
 
-        size_t ret = Record::size(iov, 4);
+        size_t ret = Record::size(iov);
         REQUIRE(ret == 39);
 
         unsigned char buffer[80];
         Record record;
         record.attach(buffer, 80);
         unsigned char header = 0x48;
-        bool sret = record.set(iov, 4, &header);
+        bool sret = record.set(iov, &header);
         REQUIRE(sret);
 
         REQUIRE(record.length() == 39);
@@ -59,7 +59,7 @@ TEST_CASE("db/record.h")
         REQUIRE(sizeof(size_t) == 39 - 25 - 6); // 第3个field的长度
 
         // get
-        struct iovec iov2[4];
+        std::vector<struct iovec> iov2(4);
         char b1[16];
         iov2[0].iov_base = (void *) b1;
         iov2[0].iov_len = 16;
@@ -73,7 +73,7 @@ TEST_CASE("db/record.h")
         iov2[3].iov_base = &length2;
         iov2[3].iov_len = sizeof(size_t);
         unsigned char header2;
-        bool bret = record.get(iov2, 4, &header2);
+        bool bret = record.get(iov2, &header2);
         REQUIRE(bret);
         REQUIRE(strncmp(b1, table, strlen(table)) == 0);
         REQUIRE(iov2[0].iov_len == strlen(table) + 1);
@@ -85,8 +85,8 @@ TEST_CASE("db/record.h")
         REQUIRE(iov2[3].iov_len == sizeof(size_t));
 
         // ref
-        struct iovec iov3[4];
-        bret = record.ref(iov3, 4, &header2);
+        std::vector<struct iovec> iov3(4);
+        bret = record.ref(iov3, &header2);
         REQUIRE(bret);
         REQUIRE(header2 == header); // 头部
         REQUIRE(memcmp(table, iov3[0].iov_base, iov3[0].iov_len) == 0);

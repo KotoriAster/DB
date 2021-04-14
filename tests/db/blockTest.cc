@@ -36,11 +36,11 @@ TEST_CASE("db/block.h")
         super.attach(buffer);
         super.clear(3);
 
-        // magic number：0xc1c6f01e
-        REQUIRE(buffer[0] == 0xc1);
-        REQUIRE(buffer[1] == 0xc6);
-        REQUIRE(buffer[2] == 0xf0);
-        REQUIRE(buffer[3] == 0x1e);
+        // magic number：0x64623031
+        REQUIRE(buffer[0] == 0x64);
+        REQUIRE(buffer[1] == 0x62);
+        REQUIRE(buffer[2] == 0x30);
+        REQUIRE(buffer[3] == 0x31);
 
         unsigned short type = super.getType();
         REQUIRE(type == BLOCK_TYPE_SUPER);
@@ -63,47 +63,6 @@ TEST_CASE("db/block.h")
 
         REQUIRE(super.checksum());
     }
-#if 0
-    SECTION("meta")
-    {
-        MetaBlock meta;
-        unsigned char buffer[BLOCK_SIZE];
-
-        meta.attach(buffer);
-        meta.clear();
-
-        // magic number：0xc1c6f01e
-        REQUIRE(buffer[0] == 0xc1);
-        REQUIRE(buffer[1] == 0xc6);
-        REQUIRE(buffer[2] == 0xf0);
-        REQUIRE(buffer[3] == 0x1e);
-
-        unsigned int spaceid = meta.getSpaceid();
-        REQUIRE(spaceid == 0);
-
-        unsigned short type = meta.getType();
-        REQUIRE(type == BLOCK_TYPE_META);
-
-        unsigned short freespace = meta.getFreeSpace();
-        REQUIRE(freespace == sizeof(MetaHeader));
-
-        unsigned int next = meta.getNext();
-        REQUIRE(next == 0);
-
-        TimeStamp ts = meta.getTimeStamp();
-        char tb[64];
-        REQUIRE(ts.toString(tb, 64));
-        // printf("ts=%s\n", tb);
-        TimeStamp ts1;
-        ts1.now();
-        REQUIRE(ts < ts1);
-
-        unsigned int tables = meta.getTables();
-        REQUIRE(tables == 0);
-
-        REQUIRE(meta.checksum());
-    }
-#endif
 
     SECTION("data")
     {
@@ -111,13 +70,13 @@ TEST_CASE("db/block.h")
         unsigned char buffer[BLOCK_SIZE];
 
         data.attach(buffer);
-        data.clear(1);
+        data.clear(1, 3, BLOCK_TYPE_DATA);
 
-        // magic number：0xc1c6f01e
-        REQUIRE(buffer[0] == 0xc1);
-        REQUIRE(buffer[1] == 0xc6);
-        REQUIRE(buffer[2] == 0xf0);
-        REQUIRE(buffer[3] == 0x1e);
+        // magic number：0x64623031
+        REQUIRE(buffer[0] == 0x64);
+        REQUIRE(buffer[1] == 0x62);
+        REQUIRE(buffer[2] == 0x30);
+        REQUIRE(buffer[3] == 0x31);
 
         unsigned int spaceid = data.getSpaceid();
         REQUIRE(spaceid == 1);
@@ -130,6 +89,9 @@ TEST_CASE("db/block.h")
 
         unsigned int next = data.getNext();
         REQUIRE(next == 0);
+
+        unsigned int self = data.getSelf();
+        REQUIRE(self == 3);
 
         TimeStamp ts = data.getTimeStamp();
         char tb[64];
@@ -170,7 +132,7 @@ TEST_CASE("db/block.h")
         unsigned char buffer[BLOCK_SIZE];
 
         data.attach(buffer);
-        data.clear(1);
+        data.clear(1, 3, BLOCK_TYPE_DATA);
 
         // 分配8字节
         unsigned char *space = data.allocate(8);
@@ -183,12 +145,12 @@ TEST_CASE("db/block.h")
         // 随便写一个记录
         Record record;
         record.attach(buffer + sizeof(DataHeader), 8);
-        struct iovec iov[2];
+        std::vector<struct iovec> iov(1);
         int kkk = 3;
         iov[0].iov_base = (void *) &kkk;
         iov[0].iov_len = sizeof(int);
         unsigned char h = 0;
-        record.set(iov, 1, &h);
+        record.set(iov, &h);
 
         // 分配5字节
         space = data.allocate(5);
@@ -202,7 +164,7 @@ TEST_CASE("db/block.h")
         kkk = 4;
         iov[0].iov_base = (void *) &kkk;
         iov[0].iov_len = sizeof(int);
-        record.set(iov, 1, &h);
+        record.set(iov, &h);
 
         // 分配711字节
         space = data.allocate(711);
@@ -216,7 +178,7 @@ TEST_CASE("db/block.h")
         char ggg[711 - 4];
         iov[0].iov_base = (void *) ggg;
         iov[0].iov_len = 711 - 4;
-        record.set(iov, 1, &h);
+        record.set(iov, &h);
         REQUIRE(record.length() == 711);
 
         // 回收第2个空间
@@ -256,91 +218,4 @@ TEST_CASE("db/block.h")
         freespace = data.getFreeSpace();
         REQUIRE(freespace == sizeof(DataHeader));
     }
-
-#if 0
-    SECTION("clear")
-    {
-        Block block;
-        unsigned char buffer[Block::BLOCK_SIZE];
-        block.attach(buffer);
-        block.clear(1, 2);
-
-        // magic number：0xc1c6f01e
-        REQUIRE(buffer[0] == 0xc1);
-        REQUIRE(buffer[1] == 0xc6);
-        REQUIRE(buffer[2] == 0xf0);
-        REQUIRE(buffer[3] == 0x1e);
-
-        int spaceid = block.spaceid();
-        REQUIRE(spaceid == 1);
-
-        int blockid = block.blockid();
-        REQUIRE(blockid == 2);
-
-        int nextid = block.getNextid();
-        REQUIRE(nextid == 0);
-
-        short garbage = block.getGarbage();
-        REQUIRE(garbage == 0);
-
-        short freespace = block.getFreespace();
-        REQUIRE(freespace == Block::BLOCK_DEFAULT_FREESPACE);
-
-        // block.setChecksum();
-        unsigned int check = block.getChecksum();
-        REQUIRE(check == Block::BLOCK_DEFAULT_CHECKSUM);
-        // printf("check=%x\n", check);
-        bool bcheck = block.checksum();
-        REQUIRE(bcheck);
-
-        unsigned short count = block.getSlotsNum();
-        REQUIRE(count == 0);
-
-        unsigned short f1 = block.getFreeLength();
-        REQUIRE(
-            f1 == Block::BLOCK_SIZE - Block::BLOCK_DEFAULT_FREESPACE -
-                      Block::BLOCK_CHECKSUM_SIZE);
-
-        unsigned short type = block.getType();
-        REQUIRE(type == BLOCK_TYPE_DATA);
-    }
-
-    SECTION("allocate")
-    {
-        Block block;
-        unsigned char buffer[Block::BLOCK_SIZE];
-        block.attach(buffer);
-        block.clear(1, 2);
-
-        struct iovec iov[3];
-        const char *hello = "hello";
-        iov[0].iov_base = (void *) hello;
-        iov[0].iov_len = strlen(hello) + 1;
-        int x = 3;
-        iov[1].iov_base = &x;
-        iov[1].iov_len = sizeof(int);
-        const char *world = "world count xxx";
-        iov[2].iov_base = (void *) world;
-        iov[2].iov_len = strlen(world) + 1;
-
-        unsigned char header = 0x84;
-
-        unsigned short f1 = block.getFreespace();
-        std::pair<size_t, size_t> ret = Record::size(iov, 3);
-
-        REQUIRE(block.allocate(&header, iov, 3));
-        unsigned short spos =
-            Block::BLOCK_SIZE - Block::BLOCK_CHECKSUM_SIZE - 2;
-        unsigned short f2 = *((unsigned short *) (buffer + spos));
-        REQUIRE(f1 == f2);
-
-        f2 = block.getSlotsNum();
-        REQUIRE(f2 == 1);
-
-        f1 = block.getFreespace();
-        f2 = f1 - Block::BLOCK_FREESPACE_OFFSET - Block::BLOCK_FREESPACE_SIZE;
-        REQUIRE(f2 >= (unsigned short) ret.first);
-        REQUIRE(f2 % 8 == 0);
-    }
-#endif
 }

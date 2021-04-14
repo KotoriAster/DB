@@ -20,10 +20,11 @@
 #include <vector>
 #include "./datatype.h"
 #include "./file.h"
+#include "./record.h"
 
 namespace db {
 
-// 描述域
+// 描述关系的域
 struct FieldInfo
 {
     std::string name;         // 域名
@@ -41,13 +42,13 @@ struct FieldInfo
 // 内存中描述关系
 struct RelationInfo
 {
-    std::string path;              // 文件路径
-    unsigned short count;          // 域的个数
-    unsigned short type;           // 类型
-    unsigned int key;              // 键的域
-    File file;                     // 文件
-    unsigned long long size;       // 大小
-    unsigned long long rows;       // 行数
+    std::string path;        // 文件路径
+    unsigned short count;    // 域的个数
+    unsigned short type;     // 类型
+    unsigned int key;        // 键的域
+    File file;               // 文件，TODO: 是否单独做文件管理？
+    unsigned long long size; // 大小
+    unsigned long long rows; // 行数
     std::vector<FieldInfo> fields; // 各域的描述
 
     RelationInfo()
@@ -57,6 +58,8 @@ struct RelationInfo
         , size(0)
         , rows(0)
     {}
+    // 根据关系属性得到iov的维度
+    int iovSize() { return 7 + count * 3; }
 };
 
 ////
@@ -69,7 +72,7 @@ class Schema
     using TableSpace = std::map<std::string, RelationInfo>;
 
   public:
-    static const char *META_FILE; // "meta.db";
+    static const char *META_FILE; // "meta.db"
 
   private:
     File metafile_;         // 元文件
@@ -92,13 +95,16 @@ class Schema
         return metafile_.remove(META_FILE);
     }
 
-  private:
-    void initIov(const char *table, RelationInfo &rel, struct iovec *iov);
+  public:
+    // 将table的关系的相关属性，塞到iov里
+    void initIov(
+        const char *table,
+        RelationInfo &rel,
+        std::vector<struct iovec> &iov);
     void retrieveInfo(
         std::string &table,
         RelationInfo &rel,
-        struct iovec *iov,
-        int iovcnt);
+        std::vector<struct iovec> &iov);
 };
 
 } // namespace db

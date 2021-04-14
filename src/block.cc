@@ -35,26 +35,33 @@ void SuperBlock::clear(unsigned short spaceid)
     setChecksum();
 }
 
-void MetaBlock::clear()
+void DataBlock::clear(
+    unsigned short spaceid,
+    unsigned int self,
+    unsigned short type)
 {
     // 清buffer
-    ::memset(buffer_, 0, SUPER_SIZE);
-    MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
+    ::memset(buffer_, 0, BLOCK_SIZE);
+    DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
 
     // 设定magic
     header->magic = MAGIC_NUMBER;
     // 设定spaceid
-    setSpaceid(0);
+    setSpaceid(spaceid);
     // 设定类型
-    setType(BLOCK_TYPE_META);
-    // 设定freespace
-    setFreeSpace(sizeof(MetaHeader));
+    setType(type);
     // 设定空闲块
     setNext(0);
+    // 设置本块id
+    setSelf(self);
     // 设定时戳
     setTimeStamp();
-    // 设定tables
-    setTables(0);
+    // 设定slots
+    setSlots(0);
+    // 设定freesize
+    setFreeSize(BLOCK_SIZE - sizeof(DataHeader) - sizeof(Trailer));
+    // 设定freespace
+    setFreeSpace(sizeof(DataHeader));
     // 设定校验和
     setChecksum();
 }
@@ -62,21 +69,27 @@ void MetaBlock::clear()
 unsigned char *DataBlock::allocate(unsigned short space)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+    // TODO: 是否需要截断记录？
     if (be16toh(header->freesize) < space) return NULL;
 
-    if (getFreespaceSize() >= space) {
-        unsigned char *ret = buffer_ + be16toh(header->freespace);
-        // 设定空闲空间大小
-        unsigned short size = (space + 7) / 8 * 8;
-        unsigned short fsize = be16toh(header->freesize) - size;
-        setFreeSize(fsize);
-        // 设定freespace偏移量
-        setFreeSpace(be16toh(header->freespace) + size);
-        return ret;
-    } else {
-        // TODO: shrink
-        return NULL;
-    }
+    // 如果freespace空间不够，先回收删除的记录
+    if (getFreespaceSize() < space) shrink();
+
+    unsigned char *ret = buffer_ + be16toh(header->freespace);
+    // 设定空闲空间大小
+    unsigned short size = (space + 7) / 8 * 8;
+    unsigned short fsize = be16toh(header->freesize) - size;
+    setFreeSize(fsize);
+    // 设定freespace偏移量
+    setFreeSpace(be16toh(header->freespace) + size);
+
+    // 写slots
+    unsigned short slots = getSlots();
+    setSlots(slots + 1); // 增加slots数目
+    unsigned short *newslot = getSlotsPointer();
+    *newslot = htobe16((unsigned short) (ret - buffer_));
+
+    return ret;
 }
 
 void DataBlock::deallocate(unsigned short offset)
@@ -92,6 +105,10 @@ void DataBlock::deallocate(unsigned short offset)
     unsigned short length = (unsigned short) (record.length() + 7) / 8 * 8;
     // 修改freesize
     setFreeSize(getFreeSize() + length);
+
+    // 写slots
+    unsigned short slots = getSlots();
+    setSlots(slots - 1); // 减少slots数目
 }
 
 void DataBlock::shrink()
@@ -120,32 +137,6 @@ void DataBlock::shrink()
     // 设定freespace
     end = (unsigned short) (last - buffer_);
     setFreeSpace(end);
-}
-
-void DataBlock::clear(unsigned short spaceid)
-{
-    // 清buffer
-    ::memset(buffer_, 0, SUPER_SIZE);
-    DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
-
-    // 设定magic
-    header->magic = MAGIC_NUMBER;
-    // 设定spaceid
-    setSpaceid(spaceid);
-    // 设定类型
-    setType(BLOCK_TYPE_DATA);
-    // 设定空闲块
-    setNext(0);
-    // 设定时戳
-    setTimeStamp();
-    // 设定slots
-    setSlots(0);
-    // 设定freesize
-    setFreeSize(BLOCK_SIZE - sizeof(DataHeader) - sizeof(Trailer));
-    // 设定freespace
-    setFreeSpace(sizeof(DataHeader));
-    // 设定校验和
-    setChecksum();
 }
 
 } // namespace db
