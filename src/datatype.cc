@@ -12,46 +12,383 @@
 
 namespace db {
 
+// 匿名空间
+namespace {
+struct CharCompare
+{
+    unsigned char *buffer; // buffer指针
+    unsigned int key;      // 键的位置
+
+    bool operator()(unsigned short x, unsigned short y)
+    {
+        // 先转化为主机字节序
+        x = be16toh(x);
+        y = be16toh(y);
+
+        // 引用两条记录
+        Record rx, ry;
+        rx.attach(buffer + x, 8);
+        ry.attach(buffer + y, 8);
+        std::vector<struct iovec> iovrx;
+        std::vector<struct iovec> iovry;
+        unsigned char xheader;
+        unsigned char yheader;
+        rx.ref(iovrx, &xheader);
+        ry.ref(iovry, &yheader);
+
+        // 得到x，y
+        const char *xchar = (const char *) iovrx[key].iov_base;
+        const char *ychar = (const char *) iovry[key].iov_base;
+
+        // CHAR长度固定
+        size_t xsize = iovrx[key].iov_len; // 字符串长度
+        return strncmp(xchar, ychar, xsize) < 0;
+    }
+};
+
+struct VarCharCompare
+{
+    unsigned char *buffer; // buffer指针
+    unsigned int key;      // 键的位置
+
+    bool operator()(unsigned short x, unsigned short y)
+    {
+        // 先转化为主机字节序
+        x = be16toh(x);
+        y = be16toh(y);
+
+        // 引用两条记录
+        Record rx, ry;
+        rx.attach(buffer + x, 8);
+        ry.attach(buffer + y, 8);
+        std::vector<struct iovec> iovrx;
+        std::vector<struct iovec> iovry;
+        unsigned char xheader;
+        unsigned char yheader;
+        rx.ref(iovrx, &xheader);
+        ry.ref(iovry, &yheader);
+
+        // 得到x，y
+        const char *xchar = (const char *) iovrx[key].iov_base;
+        const char *ychar = (const char *) iovry[key].iov_base;
+        size_t xsize = iovrx[key].iov_len; // x字符串长度
+        size_t ysize = iovry[key].iov_len; // y字符串长度
+
+        // 比较字符串
+        int ret = strncmp(xchar, ychar, xsize);
+        if (ret != 0)
+            return ret == -1 ? true : false; // 已经有结果
+        else if (xsize == ysize)             // 相同
+            return false;
+        else if (xsize < ysize)
+            return true;
+        else
+            return false;
+    }
+};
+
+struct TinyIntCompare
+{
+    unsigned char *buffer; // buffer指针
+    unsigned int key;      // 键的位置
+
+    bool operator()(unsigned short x, unsigned short y)
+    {
+        // 先转化为主机字节序
+        x = be16toh(x);
+        y = be16toh(y);
+
+        // 引用两条记录
+        Record rx, ry;
+        rx.attach(buffer + x, 8);
+        ry.attach(buffer + y, 8);
+        std::vector<struct iovec> iovrx;
+        std::vector<struct iovec> iovry;
+        unsigned char xheader;
+        unsigned char yheader;
+        rx.ref(iovrx, &xheader);
+        ry.ref(iovry, &yheader);
+
+        // 得到x，y
+        unsigned char ix = *((const unsigned char *) iovrx[key].iov_base);
+        unsigned char iy = *((const unsigned char *) iovry[key].iov_base);
+
+        return ix < iy;
+    }
+};
+
+struct SmallIntCompare
+{
+    unsigned char *buffer; // buffer指针
+    unsigned int key;      // 键的位置
+
+    bool operator()(unsigned short x, unsigned short y)
+    {
+        // 先转化为主机字节序
+        x = be16toh(x);
+        y = be16toh(y);
+
+        // 引用两条记录
+        Record rx, ry;
+        rx.attach(buffer + x, 8);
+        ry.attach(buffer + y, 8);
+        std::vector<struct iovec> iovrx;
+        std::vector<struct iovec> iovry;
+        unsigned char xheader;
+        unsigned char yheader;
+        rx.ref(iovrx, &xheader);
+        ry.ref(iovry, &yheader);
+
+        // 得到x，y
+        unsigned short ix =
+            be16toh(*((const unsigned short *) iovrx[key].iov_base));
+        unsigned short iy =
+            be16toh(*((const unsigned short *) iovry[key].iov_base));
+
+        return be16toh(ix) < be16toh(iy);
+    }
+};
+
+struct IntCompare
+{
+    unsigned char *buffer; // buffer指针
+    unsigned int key;      // 键的位置
+
+    bool operator()(unsigned short x, unsigned short y)
+    {
+        // 先转化为主机字节序
+        x = be16toh(x);
+        y = be16toh(y);
+
+        // 引用两条记录
+        Record rx, ry;
+        rx.attach(buffer + x, 8);
+        ry.attach(buffer + y, 8);
+        std::vector<struct iovec> iovrx;
+        std::vector<struct iovec> iovry;
+        unsigned char xheader;
+        unsigned char yheader;
+        rx.ref(iovrx, &xheader);
+        ry.ref(iovry, &yheader);
+
+        // 得到x，y
+        unsigned int ix =
+            be32toh(*((const unsigned int *) iovrx[key].iov_base));
+        unsigned int iy =
+            be32toh(*((const unsigned int *) iovry[key].iov_base));
+
+        return be32toh(ix) < be32toh(iy);
+    }
+};
+
+struct BigIntCompare
+{
+    unsigned char *buffer; // buffer指针
+    unsigned int key;      // 键的位置
+
+    bool operator()(unsigned short x, unsigned short y)
+    {
+        // 先转化为主机字节序
+        x = be16toh(x);
+        y = be16toh(y);
+
+        // 引用两条记录
+        Record rx, ry;
+        rx.attach(buffer + x, 8);
+        ry.attach(buffer + y, 8);
+        std::vector<struct iovec> iovrx;
+        std::vector<struct iovec> iovry;
+        unsigned char xheader;
+        unsigned char yheader;
+        rx.ref(iovrx, &xheader);
+        ry.ref(iovry, &yheader);
+
+        // 得到x，y
+        unsigned long long ix =
+            be64toh(*((const unsigned long long *) iovrx[key].iov_base));
+        unsigned long long iy =
+            be64toh(*((const unsigned long long *) iovry[key].iov_base));
+
+        return be64toh(ix) < be64toh(iy);
+    }
+};
+
+struct CharCompare2
+{
+    unsigned char *buffer; // buffer指针
+    const char *val;       // 搜索值
+    size_t size;           // val长度
+    unsigned int key;      // 键的位置
+
+    bool operator()(unsigned short x, unsigned short s)
+    {
+        // 先转化为主机字节序
+        x = be16toh(x);
+
+        // 引用两条记录
+        Record rx;
+        rx.attach(buffer + x, 8);
+        std::vector<struct iovec> iovrx;
+        unsigned char xheader;
+        rx.ref(iovrx, &xheader);
+
+        // 得到x
+        const char *xchar = (const char *) iovrx[key].iov_base;
+
+        // CHAR长度固定
+        size_t xsize = iovrx[key].iov_len; // 字符串长度
+        return strncmp(xchar, val, xsize) < 0;
+    }
+};
+
+struct VarCharCompare2
+{
+    unsigned char *buffer; // buffer指针
+    const char *val;       // 搜索值
+    size_t size;           // 字符串长度
+    unsigned int key;      // 键的位置
+
+    bool operator()(unsigned short x, unsigned short s)
+    {
+        // 先转化为主机字节序
+        x = be16toh(x);
+
+        // 引用两条记录
+        Record rx;
+        rx.attach(buffer + x, 8);
+        std::vector<struct iovec> iovrx;
+        unsigned char xheader;
+        rx.ref(iovrx, &xheader);
+
+        // 得到x
+        const char *xchar = (const char *) iovrx[key].iov_base;
+        size_t xsize = iovrx[key].iov_len; // x字符串长度
+
+        // 比较字符串
+        int ret = strncmp(xchar, val, xsize);
+        if (ret != 0)
+            return ret == -1 ? true : false; // 已经有结果
+        else if (xsize == size)              // 相同
+            return false;
+        else if (xsize < size)
+            return true;
+        else
+            return false;
+    }
+};
+
+struct TinyIntCompare2
+{
+    unsigned char *buffer; // buffer指针
+    unsigned int key;      // 键的位置
+    unsigned char val;     // 搜索键
+
+    bool operator()(unsigned short x, unsigned short s)
+    {
+        // 先转化为主机字节序
+        x = be16toh(x);
+
+        // 引用两条记录
+        Record rx;
+        rx.attach(buffer + x, 8);
+        std::vector<struct iovec> iovrx;
+        unsigned char xheader;
+        rx.ref(iovrx, &xheader);
+
+        // 得到x
+        unsigned char ix = *((const unsigned char *) iovrx[key].iov_base);
+
+        return ix < val;
+    }
+};
+
+struct SmallIntCompare2
+{
+    unsigned char *buffer; // buffer指针
+    unsigned int key;      // 键的位置
+    unsigned short val;    // 搜索键值
+
+    bool operator()(unsigned short x, unsigned short s)
+    {
+        // 先转化为主机字节序
+        x = be16toh(x);
+
+        // 引用两条记录
+        Record rx;
+        rx.attach(buffer + x, 8);
+        std::vector<struct iovec> iovrx;
+        unsigned char xheader;
+        rx.ref(iovrx, &xheader);
+
+        // 得到x
+        unsigned short ix =
+            be16toh(*((const unsigned short *) iovrx[key].iov_base));
+
+        return ix < val;
+    }
+};
+
+struct IntCompare2
+{
+    unsigned char *buffer; // buffer指针
+    unsigned int key;      // 键的位置
+    unsigned int val;      // 搜索键值
+
+    bool operator()(unsigned short x, unsigned short s)
+    {
+        // 先转化为主机字节序
+        x = be16toh(x);
+
+        // 引用两条记录
+        Record rx;
+        rx.attach(buffer + x, 8);
+        std::vector<struct iovec> iovrx;
+        unsigned char xheader;
+        rx.ref(iovrx, &xheader);
+
+        // 得到x
+        unsigned int ix =
+            be32toh(*((const unsigned int *) iovrx[key].iov_base));
+
+        return ix < val;
+    }
+};
+
+struct BigIntCompare2
+{
+    unsigned char *buffer;  // buffer指针
+    unsigned long long val; // 搜索键值
+    unsigned int key;       // 键的位置
+
+    bool operator()(unsigned short x, unsigned short s)
+    {
+        // 先转化为主机字节序
+        x = be16toh(x);
+
+        // 引用两条记录
+        Record rx;
+        rx.attach(buffer + x, 8);
+        std::vector<struct iovec> iovrx;
+        unsigned char xheader;
+        rx.ref(iovrx, &xheader);
+
+        // 得到x，y
+        unsigned long long ix =
+            be64toh(*((const unsigned long long *) iovrx[key].iov_base));
+
+        return ix < val;
+    }
+};
+} // namespace
+
 static void CharSort(unsigned char *block, unsigned int key)
 {
-    struct Compare
-    {
-        unsigned char *buffer; // buffer指针
-        unsigned int key;      // 键的位置
-
-        bool operator()(unsigned short x, unsigned short y)
-        {
-            // 先转化为主机字节序
-            x = be16toh(x);
-            y = be16toh(y);
-
-            // 引用两条记录
-            Record rx, ry;
-            rx.attach(buffer + x, 8);
-            ry.attach(buffer + y, 8);
-            std::vector<struct iovec> iovrx;
-            std::vector<struct iovec> iovry;
-            unsigned char xheader;
-            unsigned char yheader;
-            rx.ref(iovrx, &xheader);
-            ry.ref(iovry, &yheader);
-
-            // 得到x，y
-            const char *xchar = (const char *) iovrx[key].iov_base;
-            const char *ychar = (const char *) iovry[key].iov_base;
-
-            // CHAR长度固定
-            size_t xsize = iovrx[key].iov_len; // 字符串长度
-            return strncmp(xchar, ychar, xsize) < 0;
-        }
-    };
-
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
     unsigned short *slots = reinterpret_cast<unsigned short *>(
         block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
 
-    Compare compare;
+    CharCompare compare;
     compare.buffer = block;
     compare.key = key;
 
@@ -60,53 +397,12 @@ static void CharSort(unsigned char *block, unsigned int key)
 
 static void VarCharSort(unsigned char *block, unsigned int key)
 {
-    struct Compare
-    {
-        unsigned char *buffer; // buffer指针
-        unsigned int key;      // 键的位置
-
-        bool operator()(unsigned short x, unsigned short y)
-        {
-            // 先转化为主机字节序
-            x = be16toh(x);
-            y = be16toh(y);
-
-            // 引用两条记录
-            Record rx, ry;
-            rx.attach(buffer + x, 8);
-            ry.attach(buffer + y, 8);
-            std::vector<struct iovec> iovrx;
-            std::vector<struct iovec> iovry;
-            unsigned char xheader;
-            unsigned char yheader;
-            rx.ref(iovrx, &xheader);
-            ry.ref(iovry, &yheader);
-
-            // 得到x，y
-            const char *xchar = (const char *) iovrx[key].iov_base;
-            const char *ychar = (const char *) iovry[key].iov_base;
-            size_t xsize = iovrx[key].iov_len; // x字符串长度
-            size_t ysize = iovry[key].iov_len; // y字符串长度
-
-            // 比较字符串
-            int ret = strncmp(xchar, ychar, xsize);
-            if (ret != 0)
-                return ret;          // 已经有结果
-            else if (xsize == ysize) // 相同
-                return 0;
-            else if (xsize < 0)
-                return xsize < ysize ? 1 : -1;
-            else // xsize > 0
-                return xsize < ysize ? -1 : 1;
-        }
-    };
-
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
     unsigned short *slots = reinterpret_cast<unsigned short *>(
         block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
 
-    Compare compare;
+    VarCharCompare compare;
     compare.buffer = block;
     compare.key = key;
 
@@ -115,42 +411,12 @@ static void VarCharSort(unsigned char *block, unsigned int key)
 
 static void TinyIntSort(unsigned char *block, unsigned int key)
 {
-    struct Compare
-    {
-        unsigned char *buffer; // buffer指针
-        unsigned int key;      // 键的位置
-
-        bool operator()(unsigned short x, unsigned short y)
-        {
-            // 先转化为主机字节序
-            x = be16toh(x);
-            y = be16toh(y);
-
-            // 引用两条记录
-            Record rx, ry;
-            rx.attach(buffer + x, 8);
-            ry.attach(buffer + y, 8);
-            std::vector<struct iovec> iovrx;
-            std::vector<struct iovec> iovry;
-            unsigned char xheader;
-            unsigned char yheader;
-            rx.ref(iovrx, &xheader);
-            ry.ref(iovry, &yheader);
-
-            // 得到x，y
-            unsigned char ix = *((const unsigned char *) iovrx[key].iov_base);
-            unsigned char iy = *((const unsigned char *) iovry[key].iov_base);
-
-            return ix < iy;
-        }
-    };
-
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
     unsigned short *slots = reinterpret_cast<unsigned short *>(
         block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
 
-    Compare compare;
+    TinyIntCompare compare;
     compare.buffer = block;
     compare.key = key;
 
@@ -159,44 +425,12 @@ static void TinyIntSort(unsigned char *block, unsigned int key)
 
 static void SmallIntSort(unsigned char *block, unsigned int key)
 {
-    struct Compare
-    {
-        unsigned char *buffer; // buffer指针
-        unsigned int key;      // 键的位置
-
-        bool operator()(unsigned short x, unsigned short y)
-        {
-            // 先转化为主机字节序
-            x = be16toh(x);
-            y = be16toh(y);
-
-            // 引用两条记录
-            Record rx, ry;
-            rx.attach(buffer + x, 8);
-            ry.attach(buffer + y, 8);
-            std::vector<struct iovec> iovrx;
-            std::vector<struct iovec> iovry;
-            unsigned char xheader;
-            unsigned char yheader;
-            rx.ref(iovrx, &xheader);
-            ry.ref(iovry, &yheader);
-
-            // 得到x，y
-            unsigned short ix =
-                be16toh(*((const unsigned short *) iovrx[key].iov_base));
-            unsigned short iy =
-                be16toh(*((const unsigned short *) iovry[key].iov_base));
-
-            return ix < iy;
-        }
-    };
-
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
     unsigned short *slots = reinterpret_cast<unsigned short *>(
         block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
 
-    Compare compare;
+    SmallIntCompare compare;
     compare.buffer = block;
     compare.key = key;
 
@@ -205,44 +439,12 @@ static void SmallIntSort(unsigned char *block, unsigned int key)
 
 static void IntSort(unsigned char *block, unsigned int key)
 {
-    struct Compare
-    {
-        unsigned char *buffer; // buffer指针
-        unsigned int key;      // 键的位置
-
-        bool operator()(unsigned short x, unsigned short y)
-        {
-            // 先转化为主机字节序
-            x = be16toh(x);
-            y = be16toh(y);
-
-            // 引用两条记录
-            Record rx, ry;
-            rx.attach(buffer + x, 8);
-            ry.attach(buffer + y, 8);
-            std::vector<struct iovec> iovrx;
-            std::vector<struct iovec> iovry;
-            unsigned char xheader;
-            unsigned char yheader;
-            rx.ref(iovrx, &xheader);
-            ry.ref(iovry, &yheader);
-
-            // 得到x，y
-            unsigned int ix =
-                be32toh(*((const unsigned int *) iovrx[key].iov_base));
-            unsigned int iy =
-                be32toh(*((const unsigned int *) iovry[key].iov_base));
-
-            return ix < iy;
-        }
-    };
-
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
     unsigned short *slots = reinterpret_cast<unsigned short *>(
         block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
 
-    Compare compare;
+    IntCompare compare;
     compare.buffer = block;
     compare.key = key;
 
@@ -251,48 +453,132 @@ static void IntSort(unsigned char *block, unsigned int key)
 
 static void BigIntSort(unsigned char *block, unsigned int key)
 {
-    struct Compare
-    {
-        unsigned char *buffer; // buffer指针
-        unsigned int key;      // 键的位置
-
-        bool operator()(unsigned short x, unsigned short y)
-        {
-            // 先转化为主机字节序
-            x = be16toh(x);
-            y = be16toh(y);
-
-            // 引用两条记录
-            Record rx, ry;
-            rx.attach(buffer + x, 8);
-            ry.attach(buffer + y, 8);
-            std::vector<struct iovec> iovrx;
-            std::vector<struct iovec> iovry;
-            unsigned char xheader;
-            unsigned char yheader;
-            rx.ref(iovrx, &xheader);
-            ry.ref(iovry, &yheader);
-
-            // 得到x，y
-            unsigned long long ix =
-                be64toh(*((const unsigned long long *) iovrx[key].iov_base));
-            unsigned long long iy =
-                be64toh(*((const unsigned long long *) iovry[key].iov_base));
-
-            return ix < iy;
-        }
-    };
-
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
     unsigned short *slots = reinterpret_cast<unsigned short *>(
         block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
 
-    Compare compare;
+    BigIntCompare compare;
     compare.buffer = block;
     compare.key = key;
 
     std::sort(slots, slots + count, compare);
+}
+
+static unsigned short
+CharSearch(unsigned char *block, unsigned int key, void *val, size_t len)
+{
+    DataHeader *header = reinterpret_cast<DataHeader *>(block);
+    unsigned count = be16toh(header->slots);
+    unsigned short *slots = reinterpret_cast<unsigned short *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+
+    CharCompare2 compare;
+    compare.buffer = block;
+    compare.key = key;
+    compare.val = (const char *) val;
+    compare.size = len;
+
+    // 搜索值放在compare.val中，-1只是占位
+    unsigned short *low = std::lower_bound(slots, slots + count, -1, compare);
+    return (
+        unsigned short) (low - reinterpret_cast<unsigned short *>(block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short)));
+}
+
+static unsigned short
+VarCharSearch(unsigned char *block, unsigned int key, void *val, size_t len)
+{
+    DataHeader *header = reinterpret_cast<DataHeader *>(block);
+    unsigned count = be16toh(header->slots);
+    unsigned short *slots = reinterpret_cast<unsigned short *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+
+    VarCharCompare2 compare;
+    compare.buffer = block;
+    compare.key = key;
+    compare.val = (const char *) val;
+    compare.size = len;
+
+    // 搜索值放在compare.val中，-1只是占位
+    unsigned short *low = std::lower_bound(slots, slots + count, -1, compare);
+    return (
+        unsigned short) (low - reinterpret_cast<unsigned short *>(block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short)));
+}
+
+static unsigned short
+TinyIntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
+{
+    DataHeader *header = reinterpret_cast<DataHeader *>(block);
+    unsigned count = be16toh(header->slots);
+    unsigned short *slots = reinterpret_cast<unsigned short *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+
+    TinyIntCompare2 compare;
+    compare.buffer = block;
+    compare.key = key;
+    compare.val = *(reinterpret_cast<unsigned char *>(val));
+
+    // 搜索值放在compare.val中，-1只是占位
+    unsigned short *low = std::lower_bound(slots, slots + count, -1, compare);
+    return (
+        unsigned short) (low - reinterpret_cast<unsigned short *>(block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short)));
+}
+
+static unsigned short
+SmallIntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
+{
+    DataHeader *header = reinterpret_cast<DataHeader *>(block);
+    unsigned count = be16toh(header->slots);
+    unsigned short *slots = reinterpret_cast<unsigned short *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+
+    SmallIntCompare2 compare;
+    compare.buffer = block;
+    compare.key = key;
+    compare.val = *(reinterpret_cast<unsigned short *>(val));
+
+    // 搜索值放在compare.val中，-1只是占位
+    unsigned short *low = std::lower_bound(slots, slots + count, -1, compare);
+    return (
+        unsigned short) (low - reinterpret_cast<unsigned short *>(block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short)));
+}
+
+static unsigned short
+IntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
+{
+    DataHeader *header = reinterpret_cast<DataHeader *>(block);
+    unsigned count = be16toh(header->slots);
+    unsigned short *slots = reinterpret_cast<unsigned short *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+
+    IntCompare2 compare;
+    compare.buffer = block;
+    compare.key = key;
+    compare.val = *(reinterpret_cast<unsigned int *>(val));
+
+    // 搜索值放在compare.val中，-1只是占位
+    unsigned short *low = std::lower_bound(slots, slots + count, -1, compare);
+    return (
+        unsigned short) (low - reinterpret_cast<unsigned short *>(block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short)));
+}
+
+static unsigned short
+BigIntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
+{
+    DataHeader *header = reinterpret_cast<DataHeader *>(block);
+    unsigned count = be16toh(header->slots);
+    unsigned short *slots = reinterpret_cast<unsigned short *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+
+    BigIntCompare2 compare;
+    compare.buffer = block;
+    compare.key = key;
+    compare.val = *(reinterpret_cast<unsigned long long *>(val));
+
+    // 搜索值放在compare.val中，-1只是占位
+    unsigned short *low = std::lower_bound(slots, slots + count, -1, compare);
+    return (
+        unsigned short) (low - reinterpret_cast<unsigned short *>(block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short)));
 }
 
 static void CharHtobe(void *) {}
@@ -334,13 +620,43 @@ static void BigIntBetoh(void *buf)
 DataType *findDataType(const char *name)
 {
     static DataType gdatatype[] = {
-        {"CHAR", 65535, CharSort, CharHtobe, CharBetoh},             // 0
-        {"VARCHAR", -65535, VarCharSort, CharHtobe, CharBetoh},      // 1
-        {"TINYINT", 1, TinyIntSort, CharHtobe, CharBetoh},           // 2
-        {"SMALLINT", 2, SmallIntSort, SmallIntHtobe, SmallIntBetoh}, // 3
-        {"INT", 4, IntSort, IntHtobe, IntBetoh},                     // 4
-        {"BIGINT", 8, BigIntSort, BigIntHtobe, BigIntBetoh},         // 5
-        {},                                                          // x
+        {"CHAR", //
+         65535,
+         CharSort,
+         CharSearch,
+         CharHtobe,
+         CharBetoh}, // 0
+        {"VARCHAR",
+         -65535,
+         VarCharSort,
+         VarCharSearch,
+         CharHtobe,
+         CharBetoh}, // 1
+        {"TINYINT",  //
+         1,
+         TinyIntSort,
+         TinyIntSearch,
+         CharHtobe,
+         CharBetoh}, // 2
+        {"SMALLINT",
+         2,
+         SmallIntSort,
+         SmallIntSearch,
+         SmallIntHtobe,
+         SmallIntBetoh}, // 3
+        {"INT",          //
+         4,
+         IntSort,
+         IntSearch,
+         IntHtobe,
+         IntBetoh}, // 4
+        {"BIGINT",  //
+         8,
+         BigIntSort,
+         BigIntSearch,
+         BigIntHtobe,
+         BigIntBetoh}, // 5
+        {},            // x
     };
 
     int index = 0;

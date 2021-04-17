@@ -409,25 +409,29 @@ class DataBlock : public MetaBlock
     // 获取meta
     inline RelationInfo *getMeta() { return meta_; }
 
-    // 插入记录
-    // 给定一条记录，将之插入到block中
-    // 1. 在block中分配空间，然后将记录拷贝到block中；
-    // 2. 如果block空间不够，需要看记录大小是否超过block的一半，如果小于一半，则
-    // 劈开这个block；
-    // 3. 否则直接在当前block中尽量分配；
-    //
+    // 查询记录
+    // 给定一个关键字，从slots[]上搜索到该记录：
+    // 1. 根据meta确定key的位置；
+    // 2. 采用二分查找在slots[]上寻找
     // 返回值：
-    // 0 - 表示需要劈开这个block
-    // 1 - 表示分配成功
-    // >=8 - 表示该记录部分存入该block
-    size_t insertRecord(std::vector<struct iovec> &iov, size_t offset = 0);
+    // >0 - 表示找到完全匹配的位置
+    // <0 - 表示未找到完全匹配的位置，其绝对值是可以插入的位置
+    unsigned short searchRecord(void *key, size_t size);
+    // 插入记录
+    // 在block中插入记录，步骤如下：
+    // 1. 先检查空间是否足够，如果够，则插入，然后重新排序；
+    // 2. 不够，根据key寻找插入位置，从这个位置将block劈开；
+    // 3. 计算劈开后前面序列的长度，然后判断新记录加入后空间是否足够，够则插入；
+    // 4. 先将新的记录插入一个新的block，然后挪动原有记录到新的block；
+    // 返回值：
+    // true - 表示记录完全插入
+    // false - 表示block被分裂
+    bool insertRecord(std::vector<struct iovec> &iov);
     // 修改记录
     // 修改一条存在的记录
     // 先标定原记录为tomestone，然后插入新记录
     bool updateRecord(std::vector<struct iovec> &iov);
-    // 查询记录
-    // 给定一个关键字，从slots[]上搜索到该记录
-    bool searchRecord(std::vector<struct iovec> &iov);
+
     // 枚举记录
     struct Iterator
     {

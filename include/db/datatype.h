@@ -17,13 +17,27 @@ namespace db {
 // sql数据类型
 struct DataType
 {
+    // slots[]排序函数
+    // block - datablock缓冲
+    // key - 键的位置
     using Sort = void (*)(unsigned char *block, unsigned int key);
+    // slots[]查找函数
+    // block - datablock缓冲
+    // key - 键的位置
+    // val - 指向键的指针
+    // len - 键val的长度
+    // 返回值：
+    // 找到位置，或者返回lowerbound
+    using Search = unsigned short (
+            *)(unsigned char *block, unsigned int key, void *val, size_t len);
+    // 大序与主机字节序之间的转换函数
     using Htobe = void (*)(void *);
     using Betoh = void (*)(void *);
 
     const char *name; // 名字
     ptrdiff_t size;   // >0表示固定，<0表示最大大小
-    Sort sort;        // 排序函数
+    Sort sort;        // slots[]排序函数
+    Search search;    // slots[]查找函数
     Htobe htobe;      // 转化为大序
     Betoh betoh;      // 转化为主机字节序
 };

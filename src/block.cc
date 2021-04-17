@@ -141,27 +141,49 @@ void MetaBlock::shrink()
     setFreeSpace(end);
 }
 
-#if 0
-size_t DataBlock::insertRecord(std::vector<struct iovec> &iov, size_t offset)
+unsigned short DataBlock::searchRecord(void *buf, size_t len)
 {
-    size_t length = Record::size(iov); // 记录的总长度
-    size_t blen = getFreespaceSize();  // 该block的富余空间
+    DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
 
+    // 获取key位置
+    RelationInfo *info = getMeta();
+    unsigned int key = info->key;
+
+    // 调用数据类型的搜索
+    return info->fields[key].type->search(buffer_, key, buf, len);
+}
+
+bool DataBlock::insertRecord(std::vector<struct iovec> &iov)
+{
+    RelationInfo *info = getMeta();
+    unsigned int key = info->key;
+    DataType *type = info->fields[key].type;
+
+    // 如果block空间足够，插入
+    size_t blen = getFreespaceSize();  // 该block的富余空间
+    size_t length = Record::size(iov); // 记录的总长度
     if (blen >= length) {
         // 分配空间
         unsigned char *buf = allocate((unsigned short) length);
-
         // 填写记录
         Record record;
         record.attach(buf, (unsigned short) length);
         unsigned char header = 0;
         record.set(iov, &header);
-
-        //
+        // 重新排序
+        reorder(type, key);
+        // 重设校验和
+        setChecksum();
+        return true;
     }
+
+    // 找到插入的位置，计算前半部分的空间，看是否能够插入
+
+    // 前半部分空间不够，在新block上插入
+
+    // 挪动后半部分到新的block
 
     return true;
 }
-#endif
 
 } // namespace db

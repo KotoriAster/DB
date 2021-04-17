@@ -38,7 +38,6 @@ struct iovec
 namespace db {
 
 // 物理记录
-// TODO: 长度超越一个block？
 class Record
 {
   public:
@@ -46,7 +45,11 @@ class Record
     static const int ALIGN_SIZE = 8;  // 按8B对齐
 
     static const unsigned char MASK_TOMBSTONE = 0x80; // tombstone掩码
-    static const unsigned char MASK_MINIMUM = 0x40;   // 最小记录掩码
+    static const unsigned char MASK_FULL = 0x03;      // 记录是否完整
+    static const unsigned char FULL_ALL = 0x00;       // 记录完整
+    static const unsigned char FULL_START = 0x01;     // 记录开始
+    static const unsigned char FULL_MID = 0x02;       // 记录中间
+    static const unsigned char FULL_END = 0x03;       // 记录结束
 
   private:
     unsigned char *buffer_; // 记录buffer
@@ -96,6 +99,15 @@ class Record
     inline void die() { *buffer_ |= MASK_TOMBSTONE; }
     // 判断是否活跃
     inline bool isactive() { return !(*buffer_ & MASK_TOMBSTONE); }
+
+    // 判断是否完整
+    inline bool isfull() { return (*buffer_ & MASK_FULL) == FULL_ALL; }
+    // 判定是否是开始
+    inline bool isstart() { return (*buffer_ & MASK_FULL) == FULL_START; }
+    // 判定是否是中间
+    inline bool ismid() { return (*buffer_ & MASK_FULL) == FULL_MID; }
+    // 判定是结尾
+    inline bool isend() { return (*buffer_ & MASK_FULL) == FULL_END; }
 };
 
 } // namespace db
