@@ -33,6 +33,8 @@
 #include "./endian.h"
 #include "./timestamp.h"
 #include "./record.h"
+#include "./schema.h"
+#include "./datatype.h"
 
 namespace db {
 
@@ -72,7 +74,7 @@ struct Trailer
 struct SuperHeader : CommonHeader
 {
     unsigned int first; // 第1个数据块(4B)
-    TimeStamp stamp;    // 时戳(8B)
+    long long stamp;    // 时戳(8B)
     unsigned int idle;  // 空闲块(4B)
     unsigned int pad;   // 填充位(4B)
 };
@@ -86,10 +88,10 @@ struct IdleHeader : CommonHeader
 // 数据块头部
 struct DataHeader : CommonHeader
 {
+    unsigned int next;       // 下一个数据块(4B)
+    long long stamp;         // 时戳(8B)
     unsigned short slots;    // slots[]长度(2B)
     unsigned short freesize; // 空闲空间大小(2B)
-    TimeStamp stamp;         // 时戳(8B)
-    unsigned int next;       // 下一个数据块(4B)
     unsigned int self;       // 本块id(4B)
 };
 
@@ -245,80 +247,78 @@ class SuperBlock : public Block
 // @brief
 // 数据块
 //
-class DataBlock : public Block
+class MetaBlock : public Block
 {
   public:
-    // 清超块
+    // 清数据块
     void clear(unsigned short spaceid, unsigned int self, unsigned short type);
 
     // 获取空闲块
     inline unsigned int getNext()
     {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         return be32toh(header->next);
     }
     // 设定block链头
     inline void setNext(unsigned int next)
     {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         header->next = htobe32(next);
     }
 
     // 获取时戳
     inline TimeStamp getTimeStamp()
     {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         TimeStamp ts;
-        ::memcpy(&ts, &header->stamp, sizeof(TimeStamp));
-        *((long long *) &ts) = be64toh(*((long long *) &ts));
+        ts.retrieve(header->stamp);
         return ts;
     }
     // 设定时戳
     inline void setTimeStamp()
     {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         TimeStamp ts;
         ts.now();
-        *((long long *) &ts) = htobe64(*((long long *) &ts));
-        ::memcpy(&header->stamp, &ts, sizeof(TimeStamp));
+        ts.store(&header->stamp);
     }
 
     // 获取空闲空间大小
     inline unsigned short getFreeSize()
     {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         return be16toh(header->freesize);
     }
     // 设定空闲空间大小
     inline void setFreeSize(unsigned short size)
     {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         header->freesize = htobe16(size);
     }
 
-    // 设置slot存储的偏移量
+    // 设置slots数目
     inline void setSlots(unsigned short slots)
     {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         header->slots = htobe16(slots);
     }
-    // 获取slot存储的偏移量
+    // 获取slots数目
     inline unsigned short getSlots()
     {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         return be16toh(header->slots);
     }
 
     // 设置self
     inline void setSelf(unsigned int id)
     {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         header->self = htobe32(id);
     }
     // 获取self
     inline unsigned int getSelf()
     {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         return be32toh(header->self);
     }
 
@@ -348,9 +348,7 @@ class DataBlock : public Block
     // 获取trailer大小
     inline unsigned short getTrailerSize()
     {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
-        Trailer *trailer =
-            reinterpret_cast<Trailer *>(buffer_ + BLOCK_SIZE - sizeof(Trailer));
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         return (be16toh(header->slots) * sizeof(unsigned short) +
                 sizeof(unsigned int) + 7) /
                8 * 8;
@@ -358,23 +356,21 @@ class DataBlock : public Block
     // 获取slots[]指针
     inline unsigned short *getSlotsPointer()
     {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
-        Trailer *trailer =
-            reinterpret_cast<Trailer *>(buffer_ + BLOCK_SIZE - sizeof(Trailer));
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         return reinterpret_cast<unsigned short *>(
-                   buffer_ + BLOCK_SIZE - sizeof(unsigned int)) -
-               be16toh(header->slots);
+            buffer_ + BLOCK_SIZE - sizeof(unsigned int) -
+            be16toh(header->slots) * sizeof(unsigned short));
     }
     // 获取freespace空间大小
     inline unsigned short getFreespaceSize()
     {
-        DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         return BLOCK_SIZE - getTrailerSize() - be16toh(header->freespace);
     }
-    // 设定空闲链头
+    // 设定freespace偏移量
     inline void setFreeSpace(unsigned short freespace)
     {
-        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
         // 判断是不是超过了Trailer的界限
         unsigned short upper = BLOCK_SIZE - getTrailerSize();
         if (freespace >= upper) freespace = 0; //超过界限则设置为0
@@ -387,17 +383,58 @@ class DataBlock : public Block
     void deallocate(unsigned short offset);
     // 回收删除记录的资源
     void shrink();
-
-    // 插入记录
-    bool insertRecord(std::vector<struct iovec> &iov);
-    // 修改记录
-    bool updateRecord(std::vector<struct iovec> &iov);
-    // 查询记录
-    bool queryRecord(std::vector<struct iovec> &iov);
-    // 枚举记录
+    // 对slots[]重排
+    inline void reorder(DataType *type, unsigned int key)
+    {
+        type->sort(buffer_, key);
+    }
 };
 
-using MetaBlock = DataBlock;
+////
+// @brief
+// DataBlock直接从MetaBlock派生
+//
+class DataBlock : public MetaBlock
+{
+  protected:
+    RelationInfo *meta_; // 元数据指针
+
+  public:
+    DataBlock()
+        : meta_(NULL)
+    {}
+
+    // 设定meta
+    inline void setMeta(RelationInfo *meta) { meta_ = meta; }
+    // 获取meta
+    inline RelationInfo *getMeta() { return meta_; }
+
+    // 插入记录
+    // 给定一条记录，将之插入到block中
+    // 1. 在block中分配空间，然后将记录拷贝到block中；
+    // 2. 如果block空间不够，需要看记录大小是否超过block的一半，如果小于一半，则
+    // 劈开这个block；
+    // 3. 否则直接在当前block中尽量分配；
+    //
+    // 返回值：
+    // 0 - 表示需要劈开这个block
+    // 1 - 表示分配成功
+    // >=8 - 表示该记录部分存入该block
+    size_t insertRecord(std::vector<struct iovec> &iov, size_t offset = 0);
+    // 修改记录
+    // 修改一条存在的记录
+    // 先标定原记录为tomestone，然后插入新记录
+    bool updateRecord(std::vector<struct iovec> &iov);
+    // 查询记录
+    // 给定一个关键字，从slots[]上搜索到该记录
+    bool searchRecord(std::vector<struct iovec> &iov);
+    // 枚举记录
+    struct Iterator
+    {
+        unsigned short blockid; // 当前blockid
+        unsigned short index;   // slots的下标
+    };
+};
 
 } // namespace db
 

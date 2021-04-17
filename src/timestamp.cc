@@ -10,6 +10,7 @@
 #include <time.h>
 #include <string>
 #include <db/timestamp.h>
+#include <db/endian.h>
 
 namespace db {
 
@@ -51,6 +52,17 @@ void TimeStamp::fromString(const char *time)
     tmt = mktime(&tm);
     stamp_ = std::chrono::system_clock::from_time_t(tmt);
     stamp_ += micro;
+}
+
+void TimeStamp::store(long long *buf)
+{
+    static_assert(
+        sizeof(this) == sizeof(long long), "sizeof TimeStamp is not long long");
+    *buf = htobe64(*((long long *) this));
+}
+void TimeStamp::retrieve(long long buf)
+{
+    (*((long long *) this)) = be64toh(buf);
 }
 
 bool operator<(const TimeStamp &lhs, const TimeStamp &rhs)

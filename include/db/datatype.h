@@ -17,13 +17,15 @@ namespace db {
 // sql数据类型
 struct DataType
 {
-    using Compare = bool (*)(const void *, const void *, size_t, size_t);
-    using Copy = bool (*)(void *, const void *, size_t, size_t);
+    using Sort = void (*)(unsigned char *block, unsigned int key);
+    using Htobe = void (*)(void *);
+    using Betoh = void (*)(void *);
 
     const char *name; // 名字
     ptrdiff_t size;   // >0表示固定，<0表示最大大小
-    Compare compare;  // 比较函数
-    Copy copy;        // 拷贝函数
+    Sort sort;        // 排序函数
+    Htobe htobe;      // 转化为大序
+    Betoh betoh;      // 转化为主机字节序
 };
 
 // 根据数据类型名称数据类型，返回NULL表示失败

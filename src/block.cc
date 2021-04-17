@@ -6,6 +6,8 @@
 // @author niexw
 // @email niexiaowen@uestc.edu.cn
 //
+#include <algorithm>
+#include <cmath>
 #include <db/block.h>
 #include <db/record.h>
 
@@ -35,14 +37,14 @@ void SuperBlock::clear(unsigned short spaceid)
     setChecksum();
 }
 
-void DataBlock::clear(
+void MetaBlock::clear(
     unsigned short spaceid,
     unsigned int self,
     unsigned short type)
 {
     // 清buffer
     ::memset(buffer_, 0, BLOCK_SIZE);
-    DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+    MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
 
     // 设定magic
     header->magic = MAGIC_NUMBER;
@@ -59,16 +61,16 @@ void DataBlock::clear(
     // 设定slots
     setSlots(0);
     // 设定freesize
-    setFreeSize(BLOCK_SIZE - sizeof(DataHeader) - sizeof(Trailer));
+    setFreeSize(BLOCK_SIZE - sizeof(MetaHeader) - sizeof(Trailer));
     // 设定freespace
-    setFreeSpace(sizeof(DataHeader));
+    setFreeSpace(sizeof(MetaHeader));
     // 设定校验和
     setChecksum();
 }
 
-unsigned char *DataBlock::allocate(unsigned short space)
+unsigned char *MetaBlock::allocate(unsigned short space)
 {
-    DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+    MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
     // TODO: 是否需要截断记录？
     if (be16toh(header->freesize) < space) return NULL;
 
@@ -77,7 +79,7 @@ unsigned char *DataBlock::allocate(unsigned short space)
 
     unsigned char *ret = buffer_ + be16toh(header->freespace);
     // 设定空闲空间大小
-    unsigned short size = (space + 7) / 8 * 8;
+    unsigned short size = (space + 7) / 8 * 8; // 按照8字节对齐
     unsigned short fsize = be16toh(header->freesize) - size;
     setFreeSize(fsize);
     // 设定freespace偏移量
@@ -92,9 +94,9 @@ unsigned char *DataBlock::allocate(unsigned short space)
     return ret;
 }
 
-void DataBlock::deallocate(unsigned short offset)
+void MetaBlock::deallocate(unsigned short offset)
 {
-    DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+    MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
 
     // 设置tombstone
     Record record;
@@ -111,10 +113,10 @@ void DataBlock::deallocate(unsigned short offset)
     setSlots(slots - 1); // 减少slots数目
 }
 
-void DataBlock::shrink()
+void MetaBlock::shrink()
 {
-    DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
-    unsigned short offset = sizeof(DataHeader);
+    MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
+    unsigned short offset = sizeof(MetaHeader);
     unsigned short end = getFreeSpace();
     unsigned char *last = buffer_ + offset; // 拷贝指针
     unsigned short *slots = getSlotsPointer();
@@ -138,5 +140,28 @@ void DataBlock::shrink()
     end = (unsigned short) (last - buffer_);
     setFreeSpace(end);
 }
+
+#if 0
+size_t DataBlock::insertRecord(std::vector<struct iovec> &iov, size_t offset)
+{
+    size_t length = Record::size(iov); // 记录的总长度
+    size_t blen = getFreespaceSize();  // 该block的富余空间
+
+    if (blen >= length) {
+        // 分配空间
+        unsigned char *buf = allocate((unsigned short) length);
+
+        // 填写记录
+        Record record;
+        record.attach(buf, (unsigned short) length);
+        unsigned char header = 0;
+        record.set(iov, &header);
+
+        //
+    }
+
+    return true;
+}
+#endif
 
 } // namespace db

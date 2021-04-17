@@ -226,25 +226,26 @@ bool Record::ref(std::vector<struct iovec> &iov, unsigned char *header)
     Integer it;
     bool ret = it.decode((char *) buffer_ + 1, length_);
     if (!ret) return false;
-    size_t length = it.get(); // 记录总长度
+    size_t length = it.get();                          // 记录总长度
+    length_ = (unsigned short) ((length + 7) / 8 * 8); // 调整总长
     offset += it.size();
 
     // 枚举所有字段长度
     size_t index = 0;
-    std::vector<size_t> vec(iov.size()); // 存放各字段长度
+    std::vector<size_t> vec; // 存放各字段长度
     while (true) {
         if (offset >= length_) return false;
         ret = it.decode((char *) buffer_ + offset, length_ - offset);
         if (!ret) return false;
 
-        vec[index] = it.get(); // 临时存放偏移量，注意是逆序
-        if (++index > iov.size()) return false;
+        vec.push_back(it.get()); // 临时存放偏移量，注意是逆序
+        ++index;
 
         // 找到尾部
         offset += it.size();
         if (it.value_ == 0) break;
     }
-    if (index != (size_t) iov.size()) return false; // 字段数目不对
+    iov.resize(index); // 调整iov的大小
 
     // 逆序，先交换
     for (size_t i = 0; i < iov.size() / 2; ++i) {

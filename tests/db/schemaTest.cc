@@ -22,23 +22,26 @@ TEST_CASE("db/schema.h")
         field.name = "id";
         field.index = 0;
         field.length = 8;
+        field.type = findDataType("BIGINT");
         relation.fields.push_back(field);
 
         field.name = "phone";
         field.index = 1;
         field.length = 20;
+        field.type = findDataType("CHAR");
         relation.fields.push_back(field);
 
         field.name = "name";
         field.index = 2;
         field.length = -255;
+        field.type = findDataType("VARCHAR");
         relation.fields.push_back(field);
 
         relation.count = 3;
         relation.key = 0;
 
         int total = relation.iovSize();
-        REQUIRE(total == 16);
+        REQUIRE(total == 3 * 4 + 7);
 
         Schema schema;
         std::vector<struct iovec> iov(total);
@@ -83,16 +86,19 @@ TEST_CASE("db/schema.h")
         field.name = "id";
         field.index = 0;
         field.length = 8;
+        field.type = findDataType("BIGINT");
         relation.fields.push_back(field);
 
         field.name = "phone";
         field.index = 1;
         field.length = 20;
+        field.type = findDataType("CHAR");
         relation.fields.push_back(field);
 
         field.name = "name";
         field.index = 2;
         field.length = -255;
+        field.type = findDataType("VARCHAR");
         relation.fields.push_back(field);
 
         relation.count = 3;
@@ -110,6 +116,8 @@ TEST_CASE("db/schema.h")
         std::pair<Schema::TableSpace::iterator, bool> bret =
             schema.lookup("table");
         REQUIRE(bret.second);
+        REQUIRE(bret.first->second.count == 3);
+        REQUIRE(strcmp(bret.first->second.fields[0].name.c_str(), "id") == 0);
 
         ret = schema.load(bret.first);
         REQUIRE(ret == S_OK);

@@ -126,7 +126,7 @@ TEST_CASE("db/block.h")
             BLOCK_SIZE - data.getTrailerSize() - sizeof(DataHeader));
     }
 
-    SECTION("DataBlock.allocate")
+    SECTION("allocate")
     {
         DataBlock data;
         unsigned char buffer[BLOCK_SIZE];
@@ -217,5 +217,104 @@ TEST_CASE("db/block.h")
             size == BLOCK_SIZE - sizeof(DataHeader) - data.getTrailerSize());
         freespace = data.getFreeSpace();
         REQUIRE(freespace == sizeof(DataHeader));
+    }
+
+    SECTION("sort")
+    {
+        char x[3] = {'k', 'a', 'e'};
+        std::sort(x, x + 3);
+        REQUIRE(x[0] == 'a');
+        REQUIRE(x[1] == 'e');
+        REQUIRE(x[2] == 'k');
+    }
+
+    SECTION("reorder")
+    {
+        DataBlock data;
+        unsigned char buffer[BLOCK_SIZE];
+
+        data.attach(buffer);
+        data.clear(1, 3, BLOCK_TYPE_DATA);
+
+        // 假设表的字段是：id, char[12], varchar[512]
+        std::vector<struct iovec> iov(3);
+        DataType *type = findDataType("BIGINT");
+
+        // 第1条记录
+        long long id = 12;
+        type->htobe(&id);
+        iov[0].iov_base = &id;
+        iov[0].iov_len = 8;
+        iov[1].iov_base = "John Carter ";
+        iov[1].iov_len = 12;
+        const char *addr = "(323) 238-0693"
+                           "909 - 1/2 E 49th St"
+                           "Los Angeles, California(CA), 90011";
+        iov[2].iov_base = (void *) addr;
+        iov[2].iov_len = strlen(addr);
+
+        // 分配空间
+        unsigned short len = (unsigned short) Record::size(iov);
+        unsigned char *space = data.allocate(len);
+        // 填充记录
+        Record record;
+        record.attach(space, len);
+        unsigned char header = 0;
+        record.set(iov, &header);
+        // 重新排序
+        data.reorder(type, 0);
+        // 重设校验和
+        data.setChecksum();
+
+        REQUIRE(data.getFreeSpace() == sizeof(DataHeader) + len + 3);
+        unsigned short *slot =
+            (unsigned short
+                 *) (buffer + BLOCK_SIZE - sizeof(int) - sizeof(unsigned short));
+        REQUIRE(be16toh(*slot) == sizeof(DataHeader));
+        REQUIRE(data.getSlots() == 1);
+
+        // 第2条记录
+        id = 3;
+        type->htobe(&id);
+        iov[0].iov_base = &id;
+        iov[0].iov_len = 8;
+        iov[1].iov_base = "Joi Biden    ";
+        iov[1].iov_len = 12;
+        const char *addr2 = "(323) 751-1875"
+                            "7609 Mckinley Ave"
+                            "Los Angeles, California(CA), 90001";
+        iov[2].iov_base = (void *) addr2;
+        iov[2].iov_len = strlen(addr2);
+
+        // 分配空间
+        unsigned short len2 = len;
+        len = (unsigned short) Record::size(iov);
+        space = data.allocate(len);
+        // 填充记录
+        record.attach(space, len);
+        record.set(iov, &header);
+        REQUIRE(be16toh(*slot) == sizeof(DataHeader));
+        --slot;
+        REQUIRE(be16toh(*slot) == sizeof(DataHeader) + len2 + 3);
+        // 重新排序
+        data.reorder(type, 0);
+        // 重设校验和
+        data.setChecksum();
+
+        slot =
+            (unsigned short
+                 *) (buffer + BLOCK_SIZE - sizeof(int) - 2 * sizeof(unsigned short));
+        REQUIRE(be16toh(*slot) == sizeof(DataHeader) + len2 + 3);
+        ++slot;
+        REQUIRE(be16toh(*slot) == sizeof(DataHeader));
+
+        // 按照name排序
+        data.reorder(type, 1);
+        slot =
+            (unsigned short
+                 *) (buffer + BLOCK_SIZE - sizeof(int) - 2 * sizeof(unsigned short));
+        REQUIRE(be16toh(*slot) == sizeof(DataHeader));
+        ++slot;
+        REQUIRE(be16toh(*slot) == sizeof(DataHeader) + len2 + 3);
     }
 }

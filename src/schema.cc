@@ -180,18 +180,21 @@ void Schema::initIov(
     iov[6].iov_len = sizeof(unsigned long long);
 
     // 初始化field
-    size_t index = 7;
     for (unsigned short i = 0; i < count; ++i) {
-        iov[index].iov_base = (void *) info.fields[i].name.c_str();
-        iov[index].iov_len = info.fields[i].name.size() + 1;
-        ++index; // 假设是64bit机器
+        // 字段的名字
+        iov[7 + i * 4 + 0].iov_base = (void *) info.fields[i].name.c_str();
+        iov[7 + i * 4 + 0].iov_len = info.fields[i].name.size() + 1;
+        // 字段的位置
         info.fields[i].index = htobe64(info.fields[i].index);
-        iov[index].iov_base = (void *) &info.fields[i].index;
-        iov[index].iov_len = sizeof(unsigned long long);
-        ++index;
+        iov[7 + i * 4 + 1].iov_base = (void *) &info.fields[i].index;
+        iov[7 + i * 4 + 1].iov_len = sizeof(unsigned long long);
+        // 字段的长度
         info.fields[i].length = htobe64(info.fields[i].length);
-        iov[index].iov_base = (void *) &info.fields[i].length;
-        iov[index].iov_len = sizeof(long long);
+        iov[7 + i * 4 + 2].iov_base = (void *) &info.fields[i].length;
+        iov[7 + i * 4 + 2].iov_len = sizeof(long long);
+        // 字段的类型
+        iov[7 + i * 4 + 3].iov_base = (void *) info.fields[i].type->name;
+        iov[7 + i * 4 + 3].iov_len = strlen(info.fields[i].type->name) + 1;
     }
 }
 
@@ -220,19 +223,26 @@ void Schema::retrieveInfo(
     info.rows = be64toh(info.rows);
 
     // 返回各个字段
-    size_t count = (iov.size() - 7) / 3;
+    size_t count = info.count;
     info.fields.clear();
     for (size_t i = 0; i < count; ++i) {
         FieldInfo field;
-        field.name = (const char *) iov[7 + i * 3].iov_base;
+
+        // 字段名字
+        field.name = (const char *) iov[7 + i * 4].iov_base;
+        // 字段位置
         ::memcpy(
             &field.index,
-            iov[7 + i * 3 + 1].iov_base,
+            iov[7 + i * 4 + 1].iov_base,
             sizeof(unsigned long long));
         field.index = be64toh(field.index);
-        ::memcpy(&field.length, iov[7 + i * 3 + 2].iov_base, sizeof(long long));
+        // 字段长度
+        ::memcpy(&field.length, iov[7 + i * 4 + 2].iov_base, sizeof(long long));
         field.length = be64toh(field.length);
-        field.type = findDataType(field.name.c_str());
+        // 字段类型
+        const char *tname = (const char *) iov[7 + i * 4 + 3].iov_base;
+        field.type = findDataType(tname);
+
         info.fields.push_back(field);
     }
 }

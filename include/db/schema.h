@@ -25,6 +25,8 @@
 namespace db {
 
 // 描述关系的域
+// 持久化的信息包括：name、index、length、type->name
+// name是字段名，index是字段的下标，length表示字段的长度，type->name是字段的类型名
 struct FieldInfo
 {
     std::string name;         // 域名
@@ -59,7 +61,7 @@ struct RelationInfo
         , rows(0)
     {}
     // 根据关系属性得到iov的维度
-    int iovSize() { return 7 + count * 3; }
+    int iovSize() { return 7 + count * 4; }
 };
 
 ////
