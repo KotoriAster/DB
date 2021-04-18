@@ -63,11 +63,18 @@ struct CommonHeader
     unsigned short freespace; // 空闲记录链表(2B)
 };
 
+// slots结构
+struct Slot
+{
+    unsigned short offset; // 记录偏移量
+    unsigned short length; // 记录大小
+};
+
 // 尾部
 struct Trailer
 {
-    unsigned short slots[2]; // slots占位(4B)
-    unsigned int checksum;   // 校验和(4B)
+    Slot slots[1];         // slots数组
+    unsigned int checksum; // 校验和(4B)
 };
 
 // 超块头部
@@ -218,7 +225,7 @@ class SuperBlock : public Block
     {
         Trailer *trailer =
             reinterpret_cast<Trailer *>(buffer_ + SUPER_SIZE - sizeof(Trailer));
-        trailer->checksum = 0;
+        trailer->checksum = 0; // 先要清0，以防checksum计算在内
         trailer->checksum = checksum32(buffer_, SUPER_SIZE);
     }
     // 获取checksum
@@ -327,7 +334,7 @@ class MetaBlock : public Block
     {
         Trailer *trailer =
             reinterpret_cast<Trailer *>(buffer_ + BLOCK_SIZE - sizeof(Trailer));
-        trailer->checksum = 0;
+        trailer->checksum = 0; // 先要清0，防止checksum计算出错
         trailer->checksum = checksum32(buffer_, BLOCK_SIZE);
     }
     // 获取checksum
@@ -349,17 +356,16 @@ class MetaBlock : public Block
     inline unsigned short getTrailerSize()
     {
         MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
-        return (be16toh(header->slots) * sizeof(unsigned short) +
-                sizeof(unsigned int) + 7) /
-               8 * 8;
+        return ALIGN_TO_SIZE(
+            be16toh(header->slots) * sizeof(Slot) + sizeof(unsigned int));
     }
     // 获取slots[]指针
-    inline unsigned short *getSlotsPointer()
+    inline Slot *getSlotsPointer()
     {
         MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
-        return reinterpret_cast<unsigned short *>(
+        return reinterpret_cast<Slot *>(
             buffer_ + BLOCK_SIZE - sizeof(unsigned int) -
-            be16toh(header->slots) * sizeof(unsigned short));
+            be16toh(header->slots) * sizeof(Slot));
     }
     // 获取freespace空间大小
     inline unsigned short getFreespaceSize()
@@ -377,11 +383,11 @@ class MetaBlock : public Block
         header->freespace = htobe16(freespace);
     }
 
-    // 分配一个空间，直接返回指针。后续需要重新排列slots[]
+    // 分配一个空间，直接返回指针，后续需要重新排列slots[]
     unsigned char *allocate(unsigned short space);
-    // 回收一条记录，并且减少slots计数，但并未回收slots[]里的偏移量
-    void deallocate(unsigned short offset);
-    // 回收删除记录的资源
+    // 给定一条记录的槽位下标，回收一条记录，回收slots[]中分配的槽位
+    void deallocate(unsigned short index);
+    // 回收删除记录的资源，回收了slots资源，后续需要重排slots[]
     void shrink();
     // 对slots[]重排
     inline void reorder(DataType *type, unsigned int key)
@@ -414,8 +420,7 @@ class DataBlock : public MetaBlock
     // 1. 根据meta确定key的位置；
     // 2. 采用二分查找在slots[]上寻找
     // 返回值：
-    // >0 - 表示找到完全匹配的位置
-    // <0 - 表示未找到完全匹配的位置，其绝对值是可以插入的位置
+    // 返回lowerbound
     unsigned short searchRecord(void *key, size_t size);
     // 插入记录
     // 在block中插入记录，步骤如下：
@@ -431,6 +436,14 @@ class DataBlock : public MetaBlock
     // 修改一条存在的记录
     // 先标定原记录为tomestone，然后插入新记录
     bool updateRecord(std::vector<struct iovec> &iov);
+    // 分裂块位置
+    // 给定新增的记录大小和位置，计算从何处开始分裂该block
+    // 1. 先按照键排序
+    // 2. 从0开始枚举所有记录，累加长度，何时超过一半，即为分裂位置
+    unsigned short splitPosition(size_t space, unsigned short index);
+    // 移动一条记录到新的block
+    // 如果新block空间不够，简单地返回false
+    bool moveRecord(unsigned short index, DataBlock &other);
 
     // 枚举记录
     struct Iterator

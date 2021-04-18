@@ -226,8 +226,8 @@ bool Record::ref(std::vector<struct iovec> &iov, unsigned char *header)
     Integer it;
     bool ret = it.decode((char *) buffer_ + 1, length_);
     if (!ret) return false;
-    size_t length = it.get();                          // 记录总长度
-    length_ = (unsigned short) ((length + 7) / 8 * 8); // 调整总长
+    size_t length = it.get();                         // 记录总长度
+    length_ = (unsigned short) ALIGN_TO_SIZE(length); // 调整总长
     offset += it.size();
 
     // 枚举所有字段长度

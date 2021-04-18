@@ -19,11 +19,11 @@ struct CharCompare
     unsigned char *buffer; // buffer指针
     unsigned int key;      // 键的位置
 
-    bool operator()(unsigned short x, unsigned short y)
+    bool operator()(const Slot &sx, const Slot &sy)
     {
         // 先转化为主机字节序
-        x = be16toh(x);
-        y = be16toh(y);
+        unsigned short x = be16toh(sx.offset);
+        unsigned short y = be16toh(sy.offset);
 
         // 引用两条记录
         Record rx, ry;
@@ -51,11 +51,11 @@ struct VarCharCompare
     unsigned char *buffer; // buffer指针
     unsigned int key;      // 键的位置
 
-    bool operator()(unsigned short x, unsigned short y)
+    bool operator()(const Slot &sx, const Slot &sy)
     {
         // 先转化为主机字节序
-        x = be16toh(x);
-        y = be16toh(y);
+        unsigned short x = be16toh(sx.offset);
+        unsigned short y = be16toh(sy.offset);
 
         // 引用两条记录
         Record rx, ry;
@@ -92,11 +92,11 @@ struct TinyIntCompare
     unsigned char *buffer; // buffer指针
     unsigned int key;      // 键的位置
 
-    bool operator()(unsigned short x, unsigned short y)
+    bool operator()(const Slot &sx, const Slot &sy)
     {
         // 先转化为主机字节序
-        x = be16toh(x);
-        y = be16toh(y);
+        unsigned short x = be16toh(sx.offset);
+        unsigned short y = be16toh(sy.offset);
 
         // 引用两条记录
         Record rx, ry;
@@ -122,11 +122,11 @@ struct SmallIntCompare
     unsigned char *buffer; // buffer指针
     unsigned int key;      // 键的位置
 
-    bool operator()(unsigned short x, unsigned short y)
+    bool operator()(const Slot &sx, const Slot &sy)
     {
         // 先转化为主机字节序
-        x = be16toh(x);
-        y = be16toh(y);
+        unsigned short x = be16toh(sx.offset);
+        unsigned short y = be16toh(sy.offset);
 
         // 引用两条记录
         Record rx, ry;
@@ -154,11 +154,11 @@ struct IntCompare
     unsigned char *buffer; // buffer指针
     unsigned int key;      // 键的位置
 
-    bool operator()(unsigned short x, unsigned short y)
+    bool operator()(const Slot &sx, const Slot &sy)
     {
         // 先转化为主机字节序
-        x = be16toh(x);
-        y = be16toh(y);
+        unsigned short x = be16toh(sx.offset);
+        unsigned short y = be16toh(sy.offset);
 
         // 引用两条记录
         Record rx, ry;
@@ -186,11 +186,11 @@ struct BigIntCompare
     unsigned char *buffer; // buffer指针
     unsigned int key;      // 键的位置
 
-    bool operator()(unsigned short x, unsigned short y)
+    bool operator()(const Slot &sx, const Slot &sy)
     {
         // 先转化为主机字节序
-        x = be16toh(x);
-        y = be16toh(y);
+        unsigned short x = be16toh(sx.offset);
+        unsigned short y = be16toh(sy.offset);
 
         // 引用两条记录
         Record rx, ry;
@@ -220,10 +220,10 @@ struct CharCompare2
     size_t size;           // val长度
     unsigned int key;      // 键的位置
 
-    bool operator()(unsigned short x, unsigned short s)
+    bool operator()(const Slot &sx, const Slot &sy)
     {
         // 先转化为主机字节序
-        x = be16toh(x);
+        unsigned short x = be16toh(sx.offset);
 
         // 引用两条记录
         Record rx;
@@ -248,10 +248,10 @@ struct VarCharCompare2
     size_t size;           // 字符串长度
     unsigned int key;      // 键的位置
 
-    bool operator()(unsigned short x, unsigned short s)
+    bool operator()(const Slot &sx, const Slot &sy)
     {
         // 先转化为主机字节序
-        x = be16toh(x);
+        unsigned short x = be16toh(sx.offset);
 
         // 引用两条记录
         Record rx;
@@ -283,10 +283,10 @@ struct TinyIntCompare2
     unsigned int key;      // 键的位置
     unsigned char val;     // 搜索键
 
-    bool operator()(unsigned short x, unsigned short s)
+    bool operator()(const Slot &sx, const Slot &sy)
     {
         // 先转化为主机字节序
-        x = be16toh(x);
+        unsigned short x = be16toh(sx.offset);
 
         // 引用两条记录
         Record rx;
@@ -308,10 +308,10 @@ struct SmallIntCompare2
     unsigned int key;      // 键的位置
     unsigned short val;    // 搜索键值
 
-    bool operator()(unsigned short x, unsigned short s)
+    bool operator()(const Slot &sx, const Slot &sy)
     {
         // 先转化为主机字节序
-        x = be16toh(x);
+        unsigned short x = be16toh(sx.offset);
 
         // 引用两条记录
         Record rx;
@@ -334,10 +334,10 @@ struct IntCompare2
     unsigned int key;      // 键的位置
     unsigned int val;      // 搜索键值
 
-    bool operator()(unsigned short x, unsigned short s)
+    bool operator()(const Slot &sx, const Slot &sy)
     {
         // 先转化为主机字节序
-        x = be16toh(x);
+        unsigned short x = be16toh(sx.offset);
 
         // 引用两条记录
         Record rx;
@@ -360,10 +360,10 @@ struct BigIntCompare2
     unsigned long long val; // 搜索键值
     unsigned int key;       // 键的位置
 
-    bool operator()(unsigned short x, unsigned short s)
+    bool operator()(const Slot &sx, const Slot &sy)
     {
         // 先转化为主机字节序
-        x = be16toh(x);
+        unsigned short x = be16toh(sx.offset);
 
         // 引用两条记录
         Record rx;
@@ -385,8 +385,8 @@ static void CharSort(unsigned char *block, unsigned int key)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
-    unsigned short *slots = reinterpret_cast<unsigned short *>(
-        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+    Slot *slots = reinterpret_cast<Slot *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
 
     CharCompare compare;
     compare.buffer = block;
@@ -399,8 +399,8 @@ static void VarCharSort(unsigned char *block, unsigned int key)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
-    unsigned short *slots = reinterpret_cast<unsigned short *>(
-        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+    Slot *slots = reinterpret_cast<Slot *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
 
     VarCharCompare compare;
     compare.buffer = block;
@@ -413,8 +413,8 @@ static void TinyIntSort(unsigned char *block, unsigned int key)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
-    unsigned short *slots = reinterpret_cast<unsigned short *>(
-        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+    Slot *slots = reinterpret_cast<Slot *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
 
     TinyIntCompare compare;
     compare.buffer = block;
@@ -427,8 +427,8 @@ static void SmallIntSort(unsigned char *block, unsigned int key)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
-    unsigned short *slots = reinterpret_cast<unsigned short *>(
-        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+    Slot *slots = reinterpret_cast<Slot *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
 
     SmallIntCompare compare;
     compare.buffer = block;
@@ -441,8 +441,8 @@ static void IntSort(unsigned char *block, unsigned int key)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
-    unsigned short *slots = reinterpret_cast<unsigned short *>(
-        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+    Slot *slots = reinterpret_cast<Slot *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
 
     IntCompare compare;
     compare.buffer = block;
@@ -455,8 +455,8 @@ static void BigIntSort(unsigned char *block, unsigned int key)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
-    unsigned short *slots = reinterpret_cast<unsigned short *>(
-        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+    Slot *slots = reinterpret_cast<Slot *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
 
     BigIntCompare compare;
     compare.buffer = block;
@@ -470,8 +470,8 @@ CharSearch(unsigned char *block, unsigned int key, void *val, size_t len)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
-    unsigned short *slots = reinterpret_cast<unsigned short *>(
-        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+    Slot *slots = reinterpret_cast<Slot *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
 
     CharCompare2 compare;
     compare.buffer = block;
@@ -480,9 +480,11 @@ CharSearch(unsigned char *block, unsigned int key, void *val, size_t len)
     compare.size = len;
 
     // 搜索值放在compare.val中，-1只是占位
-    unsigned short *low = std::lower_bound(slots, slots + count, -1, compare);
-    return (
-        unsigned short) (low - reinterpret_cast<unsigned short *>(block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short)));
+    Slot dump;
+    Slot *low = std::lower_bound(slots, slots + count, dump, compare);
+    Slot *start =
+        (Slot *) (block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
+    return (unsigned short) (low - start);
 }
 
 static unsigned short
@@ -490,8 +492,8 @@ VarCharSearch(unsigned char *block, unsigned int key, void *val, size_t len)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
-    unsigned short *slots = reinterpret_cast<unsigned short *>(
-        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+    Slot *slots = reinterpret_cast<Slot *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
 
     VarCharCompare2 compare;
     compare.buffer = block;
@@ -500,9 +502,11 @@ VarCharSearch(unsigned char *block, unsigned int key, void *val, size_t len)
     compare.size = len;
 
     // 搜索值放在compare.val中，-1只是占位
-    unsigned short *low = std::lower_bound(slots, slots + count, -1, compare);
-    return (
-        unsigned short) (low - reinterpret_cast<unsigned short *>(block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short)));
+    Slot dump;
+    Slot *low = std::lower_bound(slots, slots + count, dump, compare);
+    Slot *start =
+        (Slot *) (block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
+    return (unsigned short) (low - start);
 }
 
 static unsigned short
@@ -510,8 +514,8 @@ TinyIntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
-    unsigned short *slots = reinterpret_cast<unsigned short *>(
-        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+    Slot *slots = reinterpret_cast<Slot *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
 
     TinyIntCompare2 compare;
     compare.buffer = block;
@@ -519,9 +523,11 @@ TinyIntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
     compare.val = *(reinterpret_cast<unsigned char *>(val));
 
     // 搜索值放在compare.val中，-1只是占位
-    unsigned short *low = std::lower_bound(slots, slots + count, -1, compare);
-    return (
-        unsigned short) (low - reinterpret_cast<unsigned short *>(block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short)));
+    Slot dump;
+    Slot *low = std::lower_bound(slots, slots + count, dump, compare);
+    Slot *start =
+        (Slot *) (block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
+    return (unsigned short) (low - start);
 }
 
 static unsigned short
@@ -529,8 +535,8 @@ SmallIntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
-    unsigned short *slots = reinterpret_cast<unsigned short *>(
-        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+    Slot *slots = reinterpret_cast<Slot *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
 
     SmallIntCompare2 compare;
     compare.buffer = block;
@@ -538,9 +544,11 @@ SmallIntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
     compare.val = *(reinterpret_cast<unsigned short *>(val));
 
     // 搜索值放在compare.val中，-1只是占位
-    unsigned short *low = std::lower_bound(slots, slots + count, -1, compare);
-    return (
-        unsigned short) (low - reinterpret_cast<unsigned short *>(block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short)));
+    Slot dump;
+    Slot *low = std::lower_bound(slots, slots + count, dump, compare);
+    Slot *start =
+        (Slot *) (block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
+    return (unsigned short) (low - start);
 }
 
 static unsigned short
@@ -548,8 +556,8 @@ IntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
-    unsigned short *slots = reinterpret_cast<unsigned short *>(
-        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+    Slot *slots = reinterpret_cast<Slot *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
 
     IntCompare2 compare;
     compare.buffer = block;
@@ -557,9 +565,11 @@ IntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
     compare.val = *(reinterpret_cast<unsigned int *>(val));
 
     // 搜索值放在compare.val中，-1只是占位
-    unsigned short *low = std::lower_bound(slots, slots + count, -1, compare);
-    return (
-        unsigned short) (low - reinterpret_cast<unsigned short *>(block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short)));
+    Slot dump;
+    Slot *low = std::lower_bound(slots, slots + count, dump, compare);
+    Slot *start =
+        (Slot *) (block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
+    return (unsigned short) (low - start);
 }
 
 static unsigned short
@@ -567,8 +577,8 @@ BigIntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
 {
     DataHeader *header = reinterpret_cast<DataHeader *>(block);
     unsigned count = be16toh(header->slots);
-    unsigned short *slots = reinterpret_cast<unsigned short *>(
-        block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short));
+    Slot *slots = reinterpret_cast<Slot *>(
+        block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
 
     BigIntCompare2 compare;
     compare.buffer = block;
@@ -576,9 +586,11 @@ BigIntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
     compare.val = *(reinterpret_cast<unsigned long long *>(val));
 
     // 搜索值放在compare.val中，-1只是占位
-    unsigned short *low = std::lower_bound(slots, slots + count, -1, compare);
-    return (
-        unsigned short) (low - reinterpret_cast<unsigned short *>(block + BLOCK_SIZE - sizeof(int) - count * sizeof(unsigned short)));
+    Slot dump;
+    Slot *low = std::lower_bound(slots, slots + count, dump, compare);
+    Slot *start =
+        (Slot *) (block + BLOCK_SIZE - sizeof(int) - count * sizeof(Slot));
+    return (unsigned short) (low - start);
 }
 
 static void CharHtobe(void *) {}

@@ -26,8 +26,7 @@ struct DataType
     // key - 键的位置
     // val - 指向键的指针
     // len - 键val的长度
-    // 返回值：
-    // 找到位置，或者返回lowerbound
+    // 返回值：返回lowerbound的位置
     using Search = unsigned short (
             *)(unsigned char *block, unsigned int key, void *val, size_t len);
     // 大序与主机字节序之间的转换函数

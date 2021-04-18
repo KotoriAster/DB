@@ -46,7 +46,7 @@ int Schema::open()
         MetaBlock block;
         block.attach(buffer_);
         unsigned short count = block.getSlots();
-        unsigned short *slots = block.getSlotsPointer();
+        Slot *slots = block.getSlotsPointer();
 
         // 枚举所有slots，加载tablespace_
         for (unsigned short i = 0; i < count; ++i) {
@@ -54,7 +54,7 @@ int Schema::open()
 
             // 得到记录
             Record record;
-            unsigned char *rb = buffer_ + be16toh(slots[i]);
+            unsigned char *rb = buffer_ + be16toh(slots[i].offset);
             record.attach(rb, BLOCK_SIZE);
 
             // 先分配iovec

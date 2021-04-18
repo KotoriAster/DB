@@ -29,6 +29,17 @@
 #include "./config.h"
 #include "./integer.h"
 
+const int ALIGN_SIZE = 8; // 按8B对齐
+#define ALIGN_TO_SIZE(x) ((x + ALIGN_SIZE - 1) / ALIGN_SIZE * ALIGN_SIZE)
+
+const unsigned char RECORD_MASK_TOMBSTONE = 0x04; // tombstone掩码
+const unsigned char RECORD_MASK_FULL = 0x03;      // 记录是否完整
+
+const unsigned char RECORD_FULL_ALL = 0x00;   // 记录完整
+const unsigned char RECORD_FULL_START = 0x01; // 记录开始
+const unsigned char RECORD_FULL_MID = 0x02;   // 记录中间
+const unsigned char RECORD_FULL_END = 0x03;   // 记录结束
+
 struct iovec
 {
     void *iov_base; /* Pointer to data.  */
@@ -42,14 +53,6 @@ class Record
 {
   public:
     static const int HEADER_SIZE = 1; // 头部1B
-    static const int ALIGN_SIZE = 8;  // 按8B对齐
-
-    static const unsigned char MASK_TOMBSTONE = 0x80; // tombstone掩码
-    static const unsigned char MASK_FULL = 0x03;      // 记录是否完整
-    static const unsigned char FULL_ALL = 0x00;       // 记录完整
-    static const unsigned char FULL_START = 0x01;     // 记录开始
-    static const unsigned char FULL_MID = 0x02;       // 记录中间
-    static const unsigned char FULL_END = 0x03;       // 记录结束
 
   private:
     unsigned char *buffer_; // 记录buffer
@@ -96,18 +99,30 @@ class Record
     size_t startOfFields();
 
     // 标记TomeStone
-    inline void die() { *buffer_ |= MASK_TOMBSTONE; }
+    inline void die() { *buffer_ |= RECORD_MASK_TOMBSTONE; }
     // 判断是否活跃
-    inline bool isactive() { return !(*buffer_ & MASK_TOMBSTONE); }
+    inline bool isactive() { return !(*buffer_ & RECORD_MASK_TOMBSTONE); }
 
     // 判断是否完整
-    inline bool isfull() { return (*buffer_ & MASK_FULL) == FULL_ALL; }
+    inline bool isfull()
+    {
+        return (*buffer_ & RECORD_MASK_FULL) == RECORD_FULL_ALL;
+    }
     // 判定是否是开始
-    inline bool isstart() { return (*buffer_ & MASK_FULL) == FULL_START; }
+    inline bool isstart()
+    {
+        return (*buffer_ & RECORD_MASK_FULL) == RECORD_FULL_START;
+    }
     // 判定是否是中间
-    inline bool ismid() { return (*buffer_ & MASK_FULL) == FULL_MID; }
+    inline bool ismid()
+    {
+        return (*buffer_ & RECORD_MASK_FULL) == RECORD_FULL_MID;
+    }
     // 判定是结尾
-    inline bool isend() { return (*buffer_ & MASK_FULL) == FULL_END; }
+    inline bool isend()
+    {
+        return (*buffer_ & RECORD_MASK_FULL) == RECORD_FULL_END;
+    }
 };
 
 } // namespace db

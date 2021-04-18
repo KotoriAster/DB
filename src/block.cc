@@ -68,77 +68,120 @@ void MetaBlock::clear(
     setChecksum();
 }
 
+// TODO: 如果record非full，直接分配，不考虑slot
 unsigned char *MetaBlock::allocate(unsigned short space)
 {
     MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
-    // TODO: 是否需要截断记录？
-    if (be16toh(header->freesize) < space) return NULL;
+    space = ALIGN_TO_SIZE(space); // 先将需要空间数对齐8B
+
+    // 计算需要分配的空间，需要考虑到分配Slot的问题
+    unsigned short demand_space = space;
+    unsigned short freesize = getFreeSize(); // block当前的剩余空间
+    unsigned short current_trailersize = getTrailerSize();
+    unsigned short demand_trailersize =
+        (getSlots() + 1) * sizeof(Slot) + sizeof(int);
+    if (current_trailersize < demand_trailersize)
+        demand_space += ALIGN_TO_SIZE(sizeof(Slot)); // 需要的空间数目
+
+    // 该block空间不够
+    if (freesize < demand_space) return NULL;
 
     // 如果freespace空间不够，先回收删除的记录
-    if (getFreespaceSize() < space) shrink();
+    unsigned short freespacesize = getFreespaceSize();
+    // freespace的空间要减去要分配的slot的空间
+    if (current_trailersize < demand_trailersize)
+        freespacesize -= ALIGN_TO_SIZE(sizeof(Slot));
+    if (freespacesize < demand_space) shrink();
 
-    unsigned char *ret = buffer_ + be16toh(header->freespace);
+    // 从freespace分配空间
+    unsigned char *ret = buffer_ + getFreeSpace();
+
+    // 增加slots计数
+    setSlots(getSlots() + 1);
+    // 在slots[]顶部增加一个条目
+    Slot *slot = getSlotsPointer();
+    slot->offset = htobe16(getFreeSpace());
+    slot->length = htobe16(space);
+
     // 设定空闲空间大小
-    unsigned short size = (space + 7) / 8 * 8; // 按照8字节对齐
-    unsigned short fsize = be16toh(header->freesize) - size;
-    setFreeSize(fsize);
+    setFreeSize(getFreeSize() - demand_space);
     // 设定freespace偏移量
-    setFreeSpace(be16toh(header->freespace) + size);
-
-    // 写slots
-    unsigned short slots = getSlots();
-    setSlots(slots + 1); // 增加slots数目
-    unsigned short *newslot = getSlotsPointer();
-    *newslot = htobe16((unsigned short) (ret - buffer_));
+    setFreeSpace(getFreeSpace() + space);
 
     return ret;
 }
 
-void MetaBlock::deallocate(unsigned short offset)
+// TODO: 需要考虑record非full的情况
+void MetaBlock::deallocate(unsigned short index)
 {
     MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
 
+    // 计算需要删除的记录的槽位
+    Slot *pslot = reinterpret_cast<Slot *>(
+        buffer_ + BLOCK_SIZE - sizeof(int) -
+        sizeof(Slot) * (getSlots() - index));
+    Slot slot;
+    slot.offset = be16toh(pslot->offset);
+    slot.length = be16toh(pslot->length);
+
     // 设置tombstone
     Record record;
-    unsigned char *space = buffer_ + offset;
+    unsigned char *space = buffer_ + slot.offset;
     record.attach(space, 8); // 只使用8个字节
     record.die();
-    // 先获取record的长度，TODO: record跨越block？？
-    unsigned short length = (unsigned short) (record.length() + 7) / 8 * 8;
-    // 修改freesize
-    setFreeSize(getFreeSize() + length);
 
-    // 写slots
-    unsigned short slots = getSlots();
-    setSlots(slots - 1); // 减少slots数目
+    // 挤压slots[]
+    for (unsigned short i = index; i > 0; --i) {
+        Slot *from = pslot;
+        --from;
+        pslot->offset = from->offset;
+        pslot->length = from->length;
+        pslot = from;
+    }
+
+    // 回收slots[]空间
+    unsigned short previous_trailersize = getTrailerSize();
+    setSlots(getSlots() - 1);
+    unsigned short current_trailersize = getTrailerSize();
+    // 要把slots[]回收的空间加回来
+    if (previous_trailersize > current_trailersize)
+        slot.length += previous_trailersize - current_trailersize;
+    // 修改freesize
+    setFreeSize(getFreeSize() + slot.length);
 }
 
 void MetaBlock::shrink()
 {
     MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
-    unsigned short offset = sizeof(MetaHeader);
-    unsigned short end = getFreeSpace();
-    unsigned char *last = buffer_ + offset; // 拷贝指针
-    unsigned short *slots = getSlotsPointer();
+    Slot *slots = getSlotsPointer();
+
+    // 按照偏移量重新排序slots[]函数
+    struct OffsetSort
+    {
+        bool operator()(const Slot &x, const Slot &y)
+        {
+            return be16toh(x.offset) < be16toh(y.offset);
+        }
+    };
+    OffsetSort osort;
+    std::sort(slots, slots + getSlots(), osort);
 
     // 枚举所有record，然后向前移动
-    int index = 0;
-    while (offset < end) {
-        Record record;
-        record.attach(buffer_ + offset, 8);
-        unsigned short length = (unsigned short) record.allocLength();
-        if (record.isactive()) {
-            if (last < buffer_ + offset)
-                memcpy(last, buffer_ + offset, length); // 拷贝数据
-            slots[index++] = offset;                    // 设定slots槽位
-            last += length;                             // 移动last指针
-        }
-        offset += length;
+    unsigned short offset = sizeof(MetaHeader);
+    unsigned short space = 0;
+    for (unsigned short i = 0; i < getSlots(); ++i) {
+        unsigned short len = be16toh((slots + i)->length);
+        unsigned short off = be16toh((slots + i)->offset);
+        if (offset < off) memmove(buffer_ + offset, buffer_ + off, len);
+        (slots + i)->offset = htobe16(offset);
+        offset += len;
+        space += len;
     }
 
     // 设定freespace
-    end = (unsigned short) (last - buffer_);
-    setFreeSpace(end);
+    setFreeSpace(offset);
+    // 计算freesize
+    setFreeSize(BLOCK_SIZE - sizeof(MetaHeader) - getTrailerSize() - space);
 }
 
 unsigned short DataBlock::searchRecord(void *buf, size_t len)
@@ -153,6 +196,43 @@ unsigned short DataBlock::searchRecord(void *buf, size_t len)
     return info->fields[key].type->search(buffer_, key, buf, len);
 }
 
+unsigned short DataBlock::splitPosition(size_t space, unsigned short index)
+{
+    // 先按照键排序slots[]
+    DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
+    RelationInfo *info = getMeta();
+    unsigned int key = info->key;
+    reorder(info->fields[key].type, key);
+
+    // 枚举所有记录
+    unsigned short count = getSlots();
+    size_t half = 0;
+    Slot *slots = getSlotsPointer();
+    for (unsigned short i = 0; i < count; ++i) {
+        // 如果是index，则将需要插入的记录空间算在内
+        if (i == index) {
+            half += space;
+            if (half > ALIGN_TO_SIZE(
+                           (BLOCK_SIZE - sizeof(DataHeader)) / 2 -
+                           count * sizeof(Slot))) {
+                // 超过一半
+                return i;
+            }
+        }
+
+        // fallthrough, i != index
+        half += be16toh(slots[i].length);
+        if (half >
+            ALIGN_TO_SIZE(
+                (BLOCK_SIZE - sizeof(DataHeader)) / 2 - count * sizeof(Slot))) {
+            // 超过一半
+            return i;
+        }
+    }
+    return count;
+}
+
+#if 0
 bool DataBlock::insertRecord(std::vector<struct iovec> &iov)
 {
     RelationInfo *info = getMeta();
@@ -185,5 +265,6 @@ bool DataBlock::insertRecord(std::vector<struct iovec> &iov)
 
     return true;
 }
+#endif
 
 } // namespace db

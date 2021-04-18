@@ -109,17 +109,16 @@ TEST_CASE("db/block.h")
         REQUIRE(data.checksum());
 
         REQUIRE(data.getTrailerSize() == 8);
-        unsigned short *pslots = reinterpret_cast<unsigned short *>(
-            buffer + BLOCK_SIZE - sizeof(unsigned int));
+        Slot *pslots =
+            reinterpret_cast<Slot *>(buffer + BLOCK_SIZE - sizeof(Slot));
         REQUIRE(pslots == data.getSlotsPointer());
         REQUIRE(data.getFreespaceSize() == BLOCK_SIZE - 8 - sizeof(DataHeader));
 
         // 假设有5个slots槽位
         data.setSlots(5);
-        REQUIRE(data.getTrailerSize() == 2 * 8);
-        pslots = reinterpret_cast<unsigned short *>(
-                     buffer + BLOCK_SIZE - sizeof(unsigned int)) -
-                 5;
+        REQUIRE(data.getTrailerSize() == sizeof(Slot) * 5 + sizeof(int));
+        pslots =
+            reinterpret_cast<Slot *>(buffer + BLOCK_SIZE - sizeof(Slot)) - 5;
         REQUIRE(pslots == data.getSlotsPointer());
         REQUIRE(
             data.getFreespaceSize() ==
@@ -141,6 +140,14 @@ TEST_CASE("db/block.h")
         REQUIRE(
             data.getFreeSize() ==
             BLOCK_SIZE - sizeof(DataHeader) - sizeof(Trailer) - 8);
+        REQUIRE(data.getSlots() == 1);
+        Slot *pslots = data.getSlotsPointer();
+        REQUIRE(
+            (unsigned char *) pslots ==
+            buffer + BLOCK_SIZE - sizeof(int) - sizeof(Slot));
+        REQUIRE(be16toh(pslots[0].offset) == sizeof(DataHeader));
+        REQUIRE(be16toh(pslots[0].length) == 8);
+        REQUIRE(data.getTrailerSize() == 8);
 
         // 随便写一个记录
         Record record;
@@ -158,7 +165,17 @@ TEST_CASE("db/block.h")
         REQUIRE(data.getFreeSpace() == sizeof(DataHeader) + 2 * 8);
         REQUIRE(
             data.getFreeSize() ==
-            BLOCK_SIZE - sizeof(DataHeader) - sizeof(Trailer) - 2 * 8);
+            BLOCK_SIZE - sizeof(DataHeader) - sizeof(Trailer) - 3 * 8);
+        REQUIRE(data.getSlots() == 2);
+        pslots = data.getSlotsPointer();
+        REQUIRE(
+            (unsigned char *) pslots ==
+            buffer + BLOCK_SIZE - sizeof(int) - 2 * sizeof(Slot));
+        REQUIRE(be16toh(pslots[0].offset) == sizeof(DataHeader) + 8);
+        REQUIRE(be16toh(pslots[0].length) == 8);
+        REQUIRE(be16toh(pslots[1].offset) == sizeof(DataHeader));
+        REQUIRE(be16toh(pslots[1].length) == 8);
+        REQUIRE(data.getTrailerSize() == 16);
 
         record.attach(buffer + sizeof(DataHeader) + 8, 8);
         kkk = 4;
@@ -172,7 +189,15 @@ TEST_CASE("db/block.h")
         REQUIRE(data.getFreeSpace() == sizeof(DataHeader) + 2 * 8 + 712);
         REQUIRE(
             data.getFreeSize() ==
-            BLOCK_SIZE - sizeof(DataHeader) - sizeof(Trailer) - 2 * 8 - 712);
+            BLOCK_SIZE - sizeof(DataHeader) - sizeof(Trailer) - 3 * 8 - 712);
+        REQUIRE(data.getSlots() == 3);
+        pslots = data.getSlotsPointer();
+        REQUIRE(
+            (unsigned char *) pslots ==
+            buffer + BLOCK_SIZE - sizeof(int) - 3 * sizeof(Slot));
+        REQUIRE(be16toh(pslots[0].offset) == sizeof(DataHeader) + 16);
+        REQUIRE(be16toh(pslots[0].length) == 712);
+        REQUIRE(data.getTrailerSize() == 16);
 
         record.attach(buffer + sizeof(DataHeader) + 2 * 8, 712);
         char ggg[711 - 4];
@@ -183,29 +208,63 @@ TEST_CASE("db/block.h")
 
         // 回收第2个空间
         unsigned short size = data.getFreeSize();
-        data.deallocate(sizeof(DataHeader) + 8);
+        data.deallocate(1);
         REQUIRE(data.getFreeSize() == size + 8);
         record.attach(buffer + sizeof(DataHeader) + 8, 8);
         REQUIRE(!record.isactive());
 
-        // 回收第3个空间
-        size = data.getFreeSize();
-        data.deallocate(sizeof(DataHeader) + 2 * 8);
-        REQUIRE(data.getFreeSize() == size + 712);
-        record.attach(buffer + sizeof(DataHeader) + 2 * 8, 8);
-        REQUIRE(!record.isactive());
+        REQUIRE(data.getSlots() == 2);
+        pslots = data.getSlotsPointer();
+        REQUIRE(
+            (unsigned char *) pslots ==
+            buffer + BLOCK_SIZE - sizeof(int) - 2 * sizeof(Slot));
+        REQUIRE(be16toh(pslots[0].offset) == sizeof(DataHeader) + 16);
+        REQUIRE(be16toh(pslots[0].length) == 712);
+        REQUIRE(be16toh(pslots[1].offset) == sizeof(DataHeader));
+        REQUIRE(be16toh(pslots[1].length) == 8);
+        REQUIRE(data.getTrailerSize() == 16);
 
         data.shrink();
         size = data.getFreeSize();
         REQUIRE(
             size ==
-            BLOCK_SIZE - sizeof(DataHeader) - data.getTrailerSize() - 8);
+            BLOCK_SIZE - sizeof(DataHeader) - data.getTrailerSize() - 8 - 712);
         unsigned short freespace = data.getFreeSpace();
-        REQUIRE(freespace == sizeof(DataHeader) + 8);
+        REQUIRE(freespace == sizeof(DataHeader) + 8 + 712);
+
+        REQUIRE(data.getSlots() == 2);
+        pslots = data.getSlotsPointer();
+        REQUIRE(
+            (unsigned char *) pslots ==
+            buffer + BLOCK_SIZE - sizeof(int) - 2 * sizeof(Slot));
+        REQUIRE(be16toh(pslots[0].offset) == sizeof(DataHeader));
+        REQUIRE(be16toh(pslots[0].length) == 8);
+        REQUIRE(be16toh(pslots[1].offset) == sizeof(DataHeader) + 8);
+        REQUIRE(be16toh(pslots[1].length) == 712);
+        REQUIRE(data.getTrailerSize() == 16);
+
+        record.attach(buffer + sizeof(DataHeader) + 8, 8);
+        REQUIRE(record.isactive());
+
+        // 回收第3个空间
+        size = data.getFreeSize();
+        data.deallocate(1);
+        REQUIRE(data.getFreeSize() == size + 712 + 8);
+        record.attach(buffer + sizeof(DataHeader) + 8, 8);
+        REQUIRE(!record.isactive());
+
+        REQUIRE(data.getSlots() == 1);
+        pslots = data.getSlotsPointer();
+        REQUIRE(
+            (unsigned char *) pslots ==
+            buffer + BLOCK_SIZE - sizeof(int) - sizeof(Slot));
+        REQUIRE(be16toh(pslots[0].offset) == sizeof(DataHeader));
+        REQUIRE(be16toh(pslots[0].length) == 8);
+        REQUIRE(data.getTrailerSize() == 8);
 
         // 回收第1个空间
         size = data.getFreeSize();
-        data.deallocate(sizeof(DataHeader));
+        data.deallocate(0);
         REQUIRE(data.getFreeSize() == size + 8);
         record.attach(buffer + sizeof(DataHeader), 8);
         REQUIRE(!record.isactive());
@@ -263,14 +322,12 @@ TEST_CASE("db/block.h")
         record.set(iov, &header);
         // 重新排序
         data.reorder(type, 0);
-        // 重设校验和
-        data.setChecksum();
 
         REQUIRE(data.getFreeSpace() == sizeof(DataHeader) + len + 3);
-        unsigned short *slot =
-            (unsigned short
-                 *) (buffer + BLOCK_SIZE - sizeof(int) - sizeof(unsigned short));
-        REQUIRE(be16toh(*slot) == sizeof(DataHeader));
+        Slot *slot =
+            (Slot *) (buffer + BLOCK_SIZE - sizeof(int) - sizeof(Slot));
+        REQUIRE(be16toh(slot->offset) == sizeof(DataHeader));
+        REQUIRE(be16toh(slot->length) == len + 3);
         REQUIRE(data.getSlots() == 1);
 
         // 第2条记录
@@ -293,32 +350,33 @@ TEST_CASE("db/block.h")
         // 填充记录
         record.attach(space, len);
         record.set(iov, &header);
-        REQUIRE(be16toh(*slot) == sizeof(DataHeader));
+        REQUIRE(be16toh(slot->offset) == sizeof(DataHeader));
+        REQUIRE(be16toh(slot->length) == len + 5);
         --slot;
-        REQUIRE(be16toh(*slot) == sizeof(DataHeader) + len2 + 3);
+        REQUIRE(be16toh(slot->offset) == sizeof(DataHeader) + len2 + 3);
+        REQUIRE(be16toh(slot->length) == len + 5);
         // 重新排序
         data.reorder(type, 0);
-        // 重设校验和
-        data.setChecksum();
 
-        slot =
-            (unsigned short
-                 *) (buffer + BLOCK_SIZE - sizeof(int) - 2 * sizeof(unsigned short));
-        REQUIRE(be16toh(*slot) == sizeof(DataHeader) + len2 + 3);
+        slot = (Slot *) (buffer + BLOCK_SIZE - sizeof(int) - 2 * sizeof(Slot));
+        REQUIRE(be16toh(slot->offset) == sizeof(DataHeader) + len2 + 3);
+        REQUIRE(be16toh(slot->length) == len + 5);
         ++slot;
-        REQUIRE(be16toh(*slot) == sizeof(DataHeader));
+        REQUIRE(be16toh(slot->offset) == sizeof(DataHeader));
+        REQUIRE(be16toh(slot->length) == len2 + 3);
 
         // 按照name排序
+        type = findDataType("CHAR");
         data.reorder(type, 1);
-        slot =
-            (unsigned short
-                 *) (buffer + BLOCK_SIZE - sizeof(int) - 2 * sizeof(unsigned short));
-        REQUIRE(be16toh(*slot) == sizeof(DataHeader) + len2 + 3);
+        slot = (Slot *) (buffer + BLOCK_SIZE - sizeof(int) - 2 * sizeof(Slot));
+        REQUIRE(be16toh(slot->offset) == sizeof(DataHeader));
+        REQUIRE(be16toh(slot->length) == len2 + 3);
         ++slot;
-        REQUIRE(be16toh(*slot) == sizeof(DataHeader));
+        REQUIRE(be16toh(slot->offset) == sizeof(DataHeader) + len2 + 3);
+        REQUIRE(be16toh(slot->length) == len + 5);
     }
 
-    SECTION("bisearch")
+    SECTION("lowerbount")
     {
         char x[4] = {'a', 'c', 'e', 'k'};
         char s = 'e';
@@ -402,8 +460,14 @@ TEST_CASE("db/block.h")
         record.set(iov, &header);
         // 重新排序
         data.reorder(type, 0);
-        // 重设校验和
-        data.setChecksum();
+
+        Slot *slot =
+            (Slot *) (buffer + BLOCK_SIZE - sizeof(int) - 2 * sizeof(Slot));
+        REQUIRE(be16toh(slot->offset) == sizeof(DataHeader) + len2 + 3);
+        REQUIRE(be16toh(slot->length) == len + 5);
+        ++slot;
+        REQUIRE(be16toh(slot->offset) == sizeof(DataHeader));
+        REQUIRE(be16toh(slot->length) == len2 + 3);
 
         // 搜索
         id = 3;

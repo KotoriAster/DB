@@ -20,8 +20,7 @@ if (WIN32)
     target_link_libraries(utest dbimpl)
 
 elseif (Linux)
-    set(TEST test.cc db/fieldTest.cc
-    )
+    set(TEST test.cc db/fieldTest.cc)
     add_executable(utest ${TEST})
     add_dependencies(utest dbimpl)
     target_link_libraries(utest dbimpl)
