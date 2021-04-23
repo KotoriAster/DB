@@ -9,6 +9,10 @@
 #ifndef __DB_TABLE_H__
 #define __DB_TABLE_H__
 
+#include <vector>
+#include "./record.h"
+#include "./schema.h"
+
 namespace db {
 
 ////
@@ -19,16 +23,29 @@ class Table
 {
   public:
     // 表的迭代器
-    struct iterator;
+    struct Iterator
+    {
+        unsigned short blockid; // 当前blockid
+        unsigned short index;   // slots的下标
+    };
+
+  private:
+    const char *name_;   // 表名
+    RelationInfo *info_; // 表的元数据
 
   public:
+    Table()
+        : name_(NULL)
+        , info_(NULL)
+    {}
+
     // 打开一张表
     int open(const char *name);
 
     // 插入一条记录
-    int insert(struct iovec *record, size_t iovcnt);
+    int insert(std::vector<struct iovec> &iov);
     int update();
-    int removet();
+    int remove();
     // begin, end
 };
 

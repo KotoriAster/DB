@@ -376,7 +376,7 @@ TEST_CASE("db/block.h")
         REQUIRE(be16toh(slot->length) == len + 5);
     }
 
-    SECTION("lowerbount")
+    SECTION("lowerbound")
     {
         char x[4] = {'a', 'c', 'e', 'k'};
         char s = 'e';
@@ -480,4 +480,54 @@ TEST_CASE("db/block.h")
         ret = type->search(buffer, 0, &id, sizeof(id));
         REQUIRE(ret == 0);
     }
+
+#if 0
+    SECTION("splitposition")
+    {
+        // 打开meta.db
+        Schema schema;
+        int ret = schema.open();
+
+        // 添加一个新表
+        RelationInfo relation;
+        relation.path = "table.dat";
+
+        // id char(20) varchar
+        FieldInfo field;
+        field.name = "id";
+        field.index = 0;
+        field.length = 8;
+        field.type = findDataType("BIGINT");
+        relation.fields.push_back(field);
+
+        field.name = "phone";
+        field.index = 1;
+        field.length = 20;
+        field.type = findDataType("CHAR");
+        relation.fields.push_back(field);
+
+        field.name = "name";
+        field.index = 2;
+        field.length = -255;
+        field.type = findDataType("VARCHAR");
+        relation.fields.push_back(field);
+
+        relation.count = 3;
+        relation.key = 0;
+        ret = schema.create("table", relation);
+
+        // 找到table表
+        std::pair<Schema::TableSpace::iterator, bool> bret =
+            schema.lookup("table");
+        ret = schema.load(bret.first);
+
+        // 插入记录
+
+        // 删除表，删除元文件
+        Schema::TableSpace::iterator it = bret.first;
+        it->second.file.close();
+        REQUIRE(it->second.file.remove("table.dat") == S_OK);
+        REQUIRE(schema.destroy() == S_OK);
+    }
+#endif
 }

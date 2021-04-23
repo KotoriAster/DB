@@ -7,10 +7,15 @@
 //
 #include "../catch.hpp"
 #include <db/file.h>
+#include <db/buffer.h>
+#include <db/schema.h>
 using namespace db;
 
 TEST_CASE("db/file.h")
 {
+    // 初始化全部变量
+    dbInit();
+
     const char *hello = "hello, world\n";
 
     SECTION("open")
@@ -71,5 +76,11 @@ TEST_CASE("db/file.h")
     {
         int ret = File::remove("table.db");
         REQUIRE(ret == S_OK);
+    }
+
+    SECTION("open")
+    {
+        File *meta = kFiles.open(Schema::META_FILE);
+        REQUIRE(meta);
     }
 }

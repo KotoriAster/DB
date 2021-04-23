@@ -12,5 +12,5 @@ using namespace db;
 
 TEST_CASE("db/table.h")
 {
-    SECTION("insert") {}
+    SECTION("open") {}
 }

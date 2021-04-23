@@ -12,17 +12,23 @@ namespace db {
 
 int Table::open(const char *name)
 {
-    // 查找schema
+    // 查找table
+    std::pair<Schema::TableSpace::iterator, bool> bret = kSchema.lookup(name);
+    if (!bret.second) return EEXIST; // 表不存在
 
-    // 找到后，加载meta信息
-    return -1;
+    // 加载元数据
+    name_ = bret.first->first.c_str();
+    info_ = &bret.first->second;
+    return S_OK;
 }
 
-int Table::insert(struct iovec *record, size_t iovcnt)
+#if 0
+int Table::insert(std::vector<struct iovec> record)
 {
     // 1. 打开文件
     // 2. 读入block
     return -1;
 }
+#endif
 
 } // namespace db

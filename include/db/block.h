@@ -83,7 +83,7 @@ struct SuperHeader : CommonHeader
     unsigned int first; // 第1个数据块(4B)
     long long stamp;    // 时戳(8B)
     unsigned int idle;  // 空闲块(4B)
-    unsigned int pad;   // 填充位(4B)
+    unsigned int self;  // 本块id(4B)
 };
 
 // 空闲块头部
@@ -121,12 +121,18 @@ class Block
 
     // 关联buffer
     inline void attach(unsigned char *buffer) { buffer_ = buffer; }
+    inline void detach() { buffer_ = NULL; }
 
     // 设定magic
     inline void setMagic()
     {
         CommonHeader *header = reinterpret_cast<CommonHeader *>(buffer_);
         header->magic = MAGIC_NUMBER;
+    }
+    inline int getMagic()
+    {
+        CommonHeader *header = reinterpret_cast<CommonHeader *>(buffer_);
+        return header->magic;
     }
 
     // 获取表空间id
@@ -218,6 +224,19 @@ class SuperBlock : public Block
         ts.now();
         *((long long *) &ts) = htobe64(*((long long *) &ts));
         ::memcpy(&header->stamp, &ts, sizeof(TimeStamp));
+    }
+
+    // 设置self
+    inline void setSelf()
+    {
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
+        header->self = htobe32(0);
+    }
+    // 获取self
+    inline unsigned int getSelf()
+    {
+        MetaHeader *header = reinterpret_cast<MetaHeader *>(buffer_);
+        return be32toh(header->self);
     }
 
     // 设定checksum
@@ -444,13 +463,6 @@ class DataBlock : public MetaBlock
     // 移动一条记录到新的block
     // 如果新block空间不够，简单地返回false
     bool moveRecord(unsigned short index, DataBlock &other);
-
-    // 枚举记录
-    struct Iterator
-    {
-        unsigned short blockid; // 当前blockid
-        unsigned short index;   // slots的下标
-    };
 };
 
 } // namespace db

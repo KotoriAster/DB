@@ -19,7 +19,6 @@
 #include <map>
 #include <vector>
 #include "./datatype.h"
-#include "./file.h"
 #include "./record.h"
 
 namespace db {
@@ -44,17 +43,24 @@ struct FieldInfo
 // 内存中描述关系
 struct RelationInfo
 {
-    std::string path;        // 文件路径
-    unsigned short count;    // 域的个数
-    unsigned short type;     // 类型
-    unsigned int key;        // 键的域
-    File file;               // 文件，TODO: 是否单独做文件管理？
-    unsigned long long size; // 大小
-    unsigned long long rows; // 行数
+    std::string path;              // 文件路径
+    unsigned short count;          // 域的个数
+    unsigned short type;           // 类型
+    unsigned int key;              // 键的域
+    unsigned long long size;       // 大小
+    unsigned long long rows;       // 行数
     std::vector<FieldInfo> fields; // 各域的描述
 
     RelationInfo()
         : count(0)
+        , type(0)
+        , key(0)
+        , size(0)
+        , rows(0)
+    {}
+    RelationInfo(const char *p)
+        : path(p)
+        , count(0)
         , type(0)
         , key(0)
         , size(0)
@@ -68,34 +74,33 @@ struct RelationInfo
 // @brief
 // Schema描述表空间
 //
+class Buffer;
 class Schema
 {
   public:
     using TableSpace = std::map<std::string, RelationInfo>;
 
   public:
-    static const char *META_FILE; // "meta.db"
+    static const char *META_FILE; // "_meta.db"
 
   private:
-    File metafile_;         // 元文件
+    Buffer *buffer_;        // 缓冲层
     TableSpace tablespace_; // 表空间
-    unsigned char *buffer_; // block
 
   public:
-    Schema();
-    ~Schema();
+    Schema()
+        : buffer_(NULL)
+    {}
 
-    int open();                                       // 打开元文件
-    int create(const char *table, RelationInfo &rel); // 新建一张表
-    std::pair<TableSpace::iterator, bool> lookup(const char *table); // 查找表
-    int load(TableSpace::iterator it); // 加载表
+    // 初始化全局schema
+    void init(Buffer *buffer);
 
-    // 删除元文件
-    inline int destroy()
-    {
-        metafile_.close();
-        return metafile_.remove(META_FILE);
-    }
+    // 打开并加载元数据
+    void open();
+    // 创建表
+    int create(const char *table, RelationInfo &rel);
+    // 搜索表
+    std::pair<TableSpace::iterator, bool> lookup(const char *table);
 
   public:
     // 将table的关系的相关属性，塞到iov里
@@ -109,6 +114,11 @@ class Schema
         std::vector<struct iovec> &iov);
 };
 
+// 初始化数据库全局变量
+void dbInit(size_t bufsize = 256);
+
+// 全局schema
+extern Schema kSchema;
 } // namespace db
 
 #endif // __DB_SCHEMA_H__

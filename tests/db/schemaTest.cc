@@ -73,10 +73,6 @@ TEST_CASE("db/schema.h")
 
     SECTION("open")
     {
-        Schema schema;
-        int ret = schema.open();
-        REQUIRE(ret == S_OK);
-
         // 填充关系
         RelationInfo relation;
         relation.path = "table.dat";
@@ -104,28 +100,13 @@ TEST_CASE("db/schema.h")
         relation.count = 3;
         relation.key = 0;
 
-        ret = schema.create("table", relation);
+        int ret = kSchema.create("table", relation);
         REQUIRE(ret == S_OK);
-    }
 
-    SECTION("load")
-    {
-        Schema schema;
-        int ret = schema.open();
-        REQUIRE(ret == S_OK);
         std::pair<Schema::TableSpace::iterator, bool> bret =
-            schema.lookup("table");
+            kSchema.lookup("table");
         REQUIRE(bret.second);
-        REQUIRE(bret.first->second.count == 3);
+        REQUIRE(be16toh(bret.first->second.count) == 3);
         REQUIRE(strcmp(bret.first->second.fields[0].name.c_str(), "id") == 0);
-
-        ret = schema.load(bret.first);
-        REQUIRE(ret == S_OK);
-
-        // 删除表，删除元文件
-        Schema::TableSpace::iterator it = bret.first;
-        it->second.file.close();
-        REQUIRE(it->second.file.remove("table.dat") == S_OK);
-        REQUIRE(schema.destroy() == S_OK);
     }
 }

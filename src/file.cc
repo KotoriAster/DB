@@ -7,6 +7,7 @@
 // @email niexiaowen@uestc.edu.cn
 //
 #include <db/file.h>
+#include <db/schema.h>
 
 namespace db {
 
@@ -90,5 +91,32 @@ int File::length(unsigned long long &len)
         return S_OK;
     }
 }
+
+void FilePool ::init(Schema *schema) { schema_ = schema; }
+
+File *FilePool::open(const char *table)
+{
+    // 先查询表是否打开
+    std::map<const char *, File>::iterator it = map_.find(table);
+    // 找到，直接返回
+    if (it != map_.end()) return &it->second;
+
+    // 未找到，先查schema得到路径
+    std::pair<Schema::TableSpace::iterator, bool> bret = schema_->lookup(table);
+    if (!bret.second) return NULL; // 表不存在
+
+    // 打开表文件
+    File file;
+    int ret = file.open(bret.first->second.path.c_str());
+    if (ret) return NULL; // 文件打开失败
+
+    // 在map中增加项
+    map_[table] = file;
+    file.handle_ = INVALID_HANDLE_VALUE; // 防止析构函数动作
+    return &map_[table];
+}
+
+// 全局文件池
+FilePool kFiles;
 
 } // namespace db

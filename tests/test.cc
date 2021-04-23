@@ -1,7 +1,7 @@
 ////
 // @file test.cc
 // @brief
-// 采用catch作为单元测试方案，需要一个main函数，这里定义。
+// 采用catch2作为单元测试方案，需要一个main函数，这里定义。
 //
 // @author niexw
 // @email xiaowen.nie.cn@gmail.com

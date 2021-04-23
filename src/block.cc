@@ -29,6 +29,8 @@ void SuperBlock::clear(unsigned short spaceid)
     setTimeStamp();
     // 设定数据块
     setFirst(0);
+    // 设定self
+    setSelf();
     // 设定空闲块，缺省从1开始
     setIdle(1);
     // 设定空闲空间
@@ -232,7 +234,6 @@ unsigned short DataBlock::splitPosition(size_t space, unsigned short index)
     return count;
 }
 
-#if 0
 bool DataBlock::insertRecord(std::vector<struct iovec> &iov)
 {
     RelationInfo *info = getMeta();
@@ -252,12 +253,13 @@ bool DataBlock::insertRecord(std::vector<struct iovec> &iov)
         record.set(iov, &header);
         // 重新排序
         reorder(type, key);
-        // 重设校验和
-        setChecksum();
         return true;
     }
 
     // 找到插入的位置，计算前半部分的空间，看是否能够插入
+    unsigned short index =
+        type->search(buffer_, key, iov[key].iov_base, iov[key].iov_len);
+    unsigned short half = splitPosition(length, index);
 
     // 前半部分空间不够，在新block上插入
 
@@ -265,6 +267,5 @@ bool DataBlock::insertRecord(std::vector<struct iovec> &iov)
 
     return true;
 }
-#endif
 
 } // namespace db

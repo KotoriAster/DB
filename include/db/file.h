@@ -10,6 +10,7 @@
 #define __DB_FILE_H__
 
 #include "./config.h"
+#include <map>
 
 namespace db {
 
@@ -37,6 +38,28 @@ class File
     // 删除文件
     static int remove(const char *path);
 };
+
+// 文件池
+class Schema;
+class FilePool
+{
+  private:
+    Schema *schema_;                   // 指向元数据
+    std::map<const char *, File> map_; // 表名 --> 描述符
+
+  public:
+    FilePool()
+        : schema_(NULL)
+    {}
+
+    // 初始化
+    void init(Schema *schema);
+    // 打开table
+    File *open(const char *table);
+};
+
+// 全局文件池
+extern FilePool kFiles;
 
 } // namespace db
 

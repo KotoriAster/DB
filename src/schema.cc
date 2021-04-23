@@ -10,86 +10,80 @@
 #include <db/block.h>
 #include <db/endian.h>
 #include <db/record.h>
+#include <db/file.h>
+#include <db/buffer.h>
 
 namespace db {
 
-const char *Schema::META_FILE = "meta.db";
+const char *Schema::META_FILE = "_meta.db";
 
-Schema::Schema() { buffer_ = (unsigned char *) malloc(BLOCK_SIZE); }
-Schema::~Schema() { free(buffer_); }
-
-int Schema::open()
+void Schema::init(Buffer *buffer)
 {
-    SuperBlock super; // 超块
+    // 指向buffer和filepool
+    buffer_ = buffer;
+    // 加入meta
+    RelationInfo kMetaInfo(META_FILE);
+    tablespace_[META_FILE] = kMetaInfo;
+    // 打开meta
+    open();
+}
 
-    // 打开元文件
-    int ret = metafile_.open(META_FILE);
-    if (ret) return ret;
+void Schema::open()
+{
+    // 读取超块
+    SuperBlock super;
+    BufDesp *desp = buffer_->borrow(META_FILE, 0);
+    super.attach(desp->buffer);
 
-    // 如果元文件长度为0，则写一个meta块
-    unsigned long long length;
-    ret = metafile_.length(length);
-    if (ret) return ret;
-    if (length) {
-        // 加载
-        metafile_.read(0, (char *) buffer_, SUPER_SIZE);
-        // TODO: 检查superblock？
-
-        // 获取第1个block
-        SuperBlock super;
-        super.attach(buffer_);
-        unsigned int first = super.getFirst();
-        size_t offset = (first - 1) * BLOCK_SIZE + SUPER_SIZE;
-        metafile_.read(offset, (char *) buffer_, BLOCK_SIZE);
-
-        // 加载metablock
-        MetaBlock block;
-        block.attach(buffer_);
-        unsigned short count = block.getSlots();
-        Slot *slots = block.getSlotsPointer();
-
-        // 枚举所有slots，加载tablespace_
-        for (unsigned short i = 0; i < count; ++i) {
-            RelationInfo info;
-
-            // 得到记录
-            Record record;
-            unsigned char *rb = buffer_ + be16toh(slots[i].offset);
-            record.attach(rb, BLOCK_SIZE);
-
-            // 先分配iovec
-            size_t fields = record.fields();
-            std::vector<struct iovec> iov(fields);
-            unsigned char header;
-
-            // 从记录得到iovec
-            record.ref(iov, &header);
-            std::string table;
-            retrieveInfo(table, info, iov); // 填充info
-
-            // 插入tablespace
-            tablespace_.insert(
-                std::pair<std::string, RelationInfo>(table, info));
-        }
-    } else {
-        // 先创建superblock
-        unsigned char rb[SUPER_SIZE];
-        super.attach(rb);
+    // meta未初始化，初始化超块
+    unsigned int first; // 第1个meta块
+    if (super.getMagic() != MAGIC_NUMBER) {
         super.clear(0);      // spaceid总是0
         super.setFirst(1);   // 第1个meta块
         super.setChecksum(); // 重新计算校验和
 
-        // 创建第1个meta块
-        MetaBlock block;
-        block.attach(buffer_);
-        block.clear(0, 1, BLOCK_TYPE_META); // 0表示meta空间
+        buffer_->writeBuf(desp); // 写超块
+        first = 1;
+    } else {
+        first = super.getFirst(); // 第1个meta块
+    }
+    super.detach(); // 分离超块指针
+    desp->relref(); // 释放超块
 
-        // 刷盘supperblock和metablock
-        metafile_.write(0, (const char *) rb, SUPER_SIZE);
-        metafile_.write(SUPER_SIZE, (const char *) buffer_, BLOCK_SIZE);
+    // 读第1个meta块
+    MetaBlock block;
+    desp = buffer_->borrow(META_FILE, first);
+    block.attach(desp->buffer);
+    if (block.getMagic() != MAGIC_NUMBER)
+        block.clear(0, first, BLOCK_TYPE_META);
+
+    // 枚举所有slots，加载tablespace_
+    unsigned short count = block.getSlots();
+    Slot *slots = block.getSlotsPointer();
+    for (unsigned short i = 0; i < count; ++i) {
+        RelationInfo info;
+
+        // 得到记录
+        Record record;
+        unsigned char *rb = desp->buffer + be16toh(slots[i].offset);
+        record.attach(rb, BLOCK_SIZE);
+
+        // 先分配iovec
+        size_t fields = record.fields();
+        std::vector<struct iovec> iov(fields);
+        unsigned char header;
+
+        // 从记录得到iovec
+        record.ref(iov, &header);
+        std::string table;
+        retrieveInfo(table, info, iov); // 填充info
+
+        // 插入tablespace
+        tablespace_.insert(std::pair<std::string, RelationInfo>(table, info));
     }
 
-    return S_OK;
+    block.detach(); // 分离超块指针
+    desp->relref(); // 释放超块
 }
 
 int Schema::create(const char *table, RelationInfo &info)
@@ -109,9 +103,10 @@ int Schema::create(const char *table, RelationInfo &info)
         tablespace_.insert(std::pair<std::string, RelationInfo>(t, info));
     if (!pret.second) return EEXIST;
 
-    // 在当前meta块中分配
+    // TODO: 读1个meta块
     MetaBlock meta;
-    meta.attach(buffer_);
+    BufDesp *desp = buffer_->borrow(META_FILE, 1);
+    meta.attach(desp->buffer);
     unsigned short length = (unsigned short) Record::size(iov);
     unsigned char *buf = meta.allocate(length);
     if (buf == NULL) {
@@ -128,9 +123,9 @@ int Schema::create(const char *table, RelationInfo &info)
     meta.setChecksum();
 
     // 写meta文件
-    unsigned int blockid = meta.getSelf() - 1;
-    size_t offset = blockid * BLOCK_SIZE + SUPER_SIZE;
-    metafile_.write(offset, (const char *) buffer_, BLOCK_SIZE);
+    buffer_->writeBuf(desp); // 写meta块
+    meta.detach();           // 分离超块指针
+    desp->relref();          // 释放超块
 
     return S_OK;
 }
@@ -141,11 +136,6 @@ std::pair<Schema::TableSpace::iterator, bool> Schema::lookup(const char *table)
     TableSpace::iterator it = tablespace_.find(t);
     bool ret = it != tablespace_.end();
     return std::pair<TableSpace::iterator, bool>(it, ret);
-}
-
-int Schema::load(TableSpace::iterator it)
-{
-    return it->second.file.open(it->second.path.c_str());
 }
 
 void Schema::initIov(
@@ -246,5 +236,18 @@ void Schema::retrieveInfo(
         info.fields.push_back(field);
     }
 }
+
+void dbInit(size_t bufsize)
+{
+    static bool inited = false;
+    if (!inited) {
+        // 初始化全局变量
+        kBuffer.init(&kFiles, bufsize);
+        kFiles.init(&kSchema);
+        kSchema.init(&kBuffer);
+    }
+}
+
+Schema kSchema;
 
 } // namespace db
