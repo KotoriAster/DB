@@ -86,10 +86,16 @@ class Schema
   private:
     Buffer *buffer_;        // 缓冲层
     TableSpace tablespace_; // 表空间
+    unsigned int maxid_;    // 最大的blockid
+    unsigned int idle_;     // 空闲链
+    unsigned int first_;    // meta链
 
   public:
     Schema()
         : buffer_(NULL)
+        , maxid_(0)
+        , idle_(0)
+        , first_(0)
     {}
 
     // 初始化全局schema
@@ -112,6 +118,8 @@ class Schema
         std::string &table,
         RelationInfo &rel,
         std::vector<struct iovec> &iov);
+    void betoh(std::vector<struct iovec> &iov);
+    void htobe(std::vector<struct iovec> &iov);
 };
 
 // 初始化数据库全局变量

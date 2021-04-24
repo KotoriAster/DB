@@ -54,6 +54,7 @@ static const int MAGIC_NUMBER = 0x31306264; // magic number
 static const int MAGIC_NUMBER = 0x64623031; // magic number
 #endif
 
+// TODO: LSN
 // 公共头部
 struct CommonHeader
 {
@@ -84,6 +85,8 @@ struct SuperHeader : CommonHeader
     long long stamp;    // 时戳(8B)
     unsigned int idle;  // 空闲块(4B)
     unsigned int self;  // 本块id(4B)
+    unsigned int maxid; // 最大的blockid(4B)
+    unsigned int pad;   // 填充位(4B)
 };
 
 // 空闲块头部
@@ -161,7 +164,7 @@ class Block
         header->type = htobe16(type);
     }
 
-    // 获取空闲链头
+    // 获取freespace
     inline unsigned short getFreeSpace()
     {
         SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
@@ -205,6 +208,19 @@ class SuperBlock : public Block
     {
         SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
         header->idle = htobe32(idle);
+    }
+
+    // 获取最大blockid
+    inline unsigned int getMaxid()
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        return be32toh(header->maxid);
+    }
+    // 设定最大blockid
+    inline void setMaxid(unsigned int maxid)
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        header->maxid = htobe32(maxid);
     }
 
     // 获取时戳
@@ -419,20 +435,28 @@ class MetaBlock : public Block
 // @brief
 // DataBlock直接从MetaBlock派生
 //
+class Table;
 class DataBlock : public MetaBlock
 {
   protected:
     RelationInfo *meta_; // 元数据指针
+    Table *table_;       // 指向table
 
   public:
     DataBlock()
         : meta_(NULL)
+        , table_(NULL)
     {}
 
     // 设定meta
     inline void setMeta(RelationInfo *meta) { meta_ = meta; }
     // 获取meta
     inline RelationInfo *getMeta() { return meta_; }
+
+    // 设定table
+    inline void setTable(Table *table) { table_ = table; }
+    // 获取table
+    inline Table *getTable() { return table_; }
 
     // 查询记录
     // 给定一个关键字，从slots[]上搜索到该记录：

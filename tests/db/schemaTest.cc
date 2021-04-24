@@ -59,19 +59,19 @@ TEST_CASE("db/schema.h")
             0);
 
         REQUIRE(iov[2].iov_len == 2);
-        unsigned short count = be16toh(*((unsigned short *) iov[2].iov_base));
+        unsigned short count = *((unsigned short *) iov[2].iov_base);
         REQUIRE(count == 3);
 
         REQUIRE(iov[3].iov_len == 2);
-        unsigned short type = be16toh(*((unsigned short *) iov[3].iov_base));
+        unsigned short type = *((unsigned short *) iov[3].iov_base);
         REQUIRE(type == 0);
 
         REQUIRE(iov[4].iov_len == 4);
-        unsigned int key = be32toh(*((unsigned int *) iov[4].iov_base));
+        unsigned int key = *((unsigned int *) iov[4].iov_base);
         REQUIRE(key == 0);
     }
 
-    SECTION("open")
+    SECTION("create")
     {
         // 填充关系
         RelationInfo relation;
@@ -106,7 +106,7 @@ TEST_CASE("db/schema.h")
         std::pair<Schema::TableSpace::iterator, bool> bret =
             kSchema.lookup("table");
         REQUIRE(bret.second);
-        REQUIRE(be16toh(bret.first->second.count) == 3);
+        REQUIRE(bret.first->second.count == 3);
         REQUIRE(strcmp(bret.first->second.fields[0].name.c_str(), "id") == 0);
     }
 }

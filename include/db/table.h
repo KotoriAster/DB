@@ -9,6 +9,7 @@
 #ifndef __DB_TABLE_H__
 #define __DB_TABLE_H__
 
+#include <string>
 #include <vector>
 #include "./record.h"
 #include "./schema.h"
@@ -29,14 +30,19 @@ class Table
         unsigned short index;   // slots的下标
     };
 
-  private:
-    const char *name_;   // 表名
+  public:
+    std::string name_;   // 表名
     RelationInfo *info_; // 表的元数据
+    unsigned int maxid_; // 最大的blockid
+    unsigned int idle_;  // 空闲链
+    unsigned int first_; // meta链
 
   public:
     Table()
-        : name_(NULL)
-        , info_(NULL)
+        : info_(NULL)
+        , maxid_(0)
+        , idle_(0)
+        , first_(0)
     {}
 
     // 打开一张表
@@ -47,6 +53,13 @@ class Table
     int update();
     int remove();
     // begin, end
+
+    // 新分配一个block，范围blockid
+    unsigned int allocate();
+    // 回收一个block
+    void deallocate(unsigned int blockid);
+    // 采用枚举的方式定位一个key在哪个block
+    unsigned int locate(void *keybuf, unsigned int len);
 };
 
 } // namespace db

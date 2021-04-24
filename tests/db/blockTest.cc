@@ -19,7 +19,7 @@ TEST_CASE("db/block.h")
         REQUIRE(sizeof(Trailer) % 8 == 0);
         REQUIRE(
             sizeof(SuperHeader) ==
-            sizeof(CommonHeader) + sizeof(TimeStamp) + 3 * sizeof(int));
+            sizeof(CommonHeader) + sizeof(TimeStamp) + 5 * sizeof(int));
         REQUIRE(sizeof(SuperHeader) % 8 == 0);
         REQUIRE(sizeof(IdleHeader) == sizeof(CommonHeader) + sizeof(int));
         REQUIRE(sizeof(IdleHeader) % 8 == 0);
@@ -50,8 +50,8 @@ TEST_CASE("db/block.h")
         unsigned int spaceid = super.getSpaceid();
         REQUIRE(spaceid == 3);
 
-        unsigned int head = super.getIdle();
-        REQUIRE(head == 1);
+        unsigned int idle = super.getIdle();
+        REQUIRE(idle == 0);
 
         TimeStamp ts = super.getTimeStamp();
         char tb[64];

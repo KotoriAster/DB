@@ -36,26 +36,28 @@ void Schema::open()
     super.attach(desp->buffer);
 
     // meta未初始化，初始化超块
-    unsigned int first; // 第1个meta块
     if (super.getMagic() != MAGIC_NUMBER) {
         super.clear(0);      // spaceid总是0
         super.setFirst(1);   // 第1个meta块
+        super.setMaxid(1);   // 设定maxid
         super.setChecksum(); // 重新计算校验和
 
         buffer_->writeBuf(desp); // 写超块
-        first = 1;
+        first_ = 1;
+        maxid_ = 1;
     } else {
-        first = super.getFirst(); // 第1个meta块
+        first_ = super.getFirst(); // 第1个meta块
+        maxid_ = super.getMaxid(); // 最大的blockid
     }
     super.detach(); // 分离超块指针
     desp->relref(); // 释放超块
 
     // 读第1个meta块
     MetaBlock block;
-    desp = buffer_->borrow(META_FILE, first);
+    desp = buffer_->borrow(META_FILE, first_);
     block.attach(desp->buffer);
     if (block.getMagic() != MAGIC_NUMBER)
-        block.clear(0, first, BLOCK_TYPE_META);
+        block.clear(0, first_, BLOCK_TYPE_META);
 
     // 枚举所有slots，加载tablespace_
     unsigned short count = block.getSlots();
@@ -94,6 +96,10 @@ int Schema::create(const char *table, RelationInfo &info)
     int total = info.iovSize();
     std::vector<struct iovec> iov(total);
 
+    // NOTE: 强制修改路径名
+    info.path = table;
+    info.path += ".dat";
+
     // 初始化iov
     initIov(table, info, iov);
 
@@ -103,9 +109,9 @@ int Schema::create(const char *table, RelationInfo &info)
         tablespace_.insert(std::pair<std::string, RelationInfo>(t, info));
     if (!pret.second) return EEXIST;
 
-    // TODO: 读1个meta块
+    // 读1个meta块
     MetaBlock meta;
-    BufDesp *desp = buffer_->borrow(META_FILE, 1);
+    BufDesp *desp = buffer_->borrow(META_FILE, first_);
     meta.attach(desp->buffer);
     unsigned short length = (unsigned short) Record::size(iov);
     unsigned char *buf = meta.allocate(length);
@@ -117,7 +123,9 @@ int Schema::create(const char *table, RelationInfo &info)
     Record record;
     record.attach(buf, length);
     unsigned char header;
+    htobe(iov);
     record.set(iov, &header);
+    betoh(iov);
 
     // 处理checksum
     meta.setChecksum();
@@ -125,6 +133,28 @@ int Schema::create(const char *table, RelationInfo &info)
     // 写meta文件
     buffer_->writeBuf(desp); // 写meta块
     meta.detach();           // 分离超块指针
+    desp->relref();          // 释放超块
+
+    // 创建新表的超块
+    SuperBlock super;
+    desp = buffer_->borrow(table, 0);
+    super.attach(desp->buffer);
+    // TODO: spaceid
+    super.clear(1);
+    super.setFirst(1);
+    super.setMaxid(1);
+    super.setChecksum();
+    buffer_->writeBuf(desp); // 写meta块
+    super.detach();          // 分离超块指针
+    desp->relref();          // 释放超块
+
+    // 新表的第1个数据块
+    DataBlock data;
+    desp = buffer_->borrow(table, 1);
+    data.attach(desp->buffer);
+    data.clear(1, 1, BLOCK_TYPE_DATA);
+    buffer_->writeBuf(desp); // 写meta块
+    data.detach();           // 分离超块指针
     desp->relref();          // 释放超块
 
     return S_OK;
@@ -150,16 +180,12 @@ void Schema::initIov(
     iov[1].iov_base = (void *) info.path.c_str();
     iov[1].iov_len = info.path.size() + 1;
     // count
-    unsigned short count = info.count;
-    info.count = htobe16(info.count); // 底层保存为big endian
     iov[2].iov_base = &info.count;
     iov[2].iov_len = sizeof(unsigned short);
     // type
-    info.type = htobe16(info.type);
     iov[3].iov_base = &info.type;
     iov[3].iov_len = sizeof(unsigned short);
     // key
-    info.key = htobe32(info.key);
     iov[4].iov_base = &info.key;
     iov[4].iov_len = sizeof(unsigned int);
     // size
@@ -170,21 +196,77 @@ void Schema::initIov(
     iov[6].iov_len = sizeof(unsigned long long);
 
     // 初始化field
-    for (unsigned short i = 0; i < count; ++i) {
+    for (unsigned short i = 0; i < info.count; ++i) {
         // 字段的名字
         iov[7 + i * 4 + 0].iov_base = (void *) info.fields[i].name.c_str();
         iov[7 + i * 4 + 0].iov_len = info.fields[i].name.size() + 1;
         // 字段的位置
-        info.fields[i].index = htobe64(info.fields[i].index);
         iov[7 + i * 4 + 1].iov_base = (void *) &info.fields[i].index;
         iov[7 + i * 4 + 1].iov_len = sizeof(unsigned long long);
         // 字段的长度
-        info.fields[i].length = htobe64(info.fields[i].length);
         iov[7 + i * 4 + 2].iov_base = (void *) &info.fields[i].length;
         iov[7 + i * 4 + 2].iov_len = sizeof(long long);
         // 字段的类型
         iov[7 + i * 4 + 3].iov_base = (void *) info.fields[i].type->name;
         iov[7 + i * 4 + 3].iov_len = strlen(info.fields[i].type->name) + 1;
+    }
+}
+void Schema::betoh(std::vector<struct iovec> &iov)
+{
+    // count
+    unsigned short *s = (unsigned short *) iov[2].iov_base;
+    *s = be16toh(*s);
+    unsigned short count = *s;
+    // type
+    s = (unsigned short *) iov[3].iov_base;
+    *s = be16toh(*s);
+    // key
+    unsigned int *i = (unsigned int *) iov[4].iov_base;
+    *i = be32toh(*i);
+    // size
+    unsigned long long *l = (unsigned long long *) iov[5].iov_base;
+    *l = be64toh(*l);
+    // rows
+    l = (unsigned long long *) iov[6].iov_base;
+    *l = be64toh(*l);
+
+    // 初始化field
+    for (unsigned short i = 0; i < count; ++i) {
+        // 字段的位置
+        l = (unsigned long long *) iov[7 + i * 4 + 1].iov_base;
+        *l = be64toh(*l);
+        // 字段的长度
+        l = (unsigned long long *) iov[7 + i * 4 + 2].iov_base;
+        *l = be64toh(*l);
+    }
+}
+void Schema::htobe(std::vector<struct iovec> &iov)
+{
+    // count
+    unsigned short *s = (unsigned short *) iov[2].iov_base;
+    unsigned short count = *s;
+    *s = htobe16(*s);
+    // type
+    s = (unsigned short *) iov[3].iov_base;
+    *s = htobe16(*s);
+    // key
+    unsigned int *i = (unsigned int *) iov[4].iov_base;
+    *i = htobe32(*i);
+    // size
+    unsigned long long *l = (unsigned long long *) iov[5].iov_base;
+    *l = htobe64(*l);
+    // rows
+    l = (unsigned long long *) iov[6].iov_base;
+    *l = htobe64(*l);
+
+    // 初始化field
+    for (unsigned short i = 0; i < count; ++i) {
+        // 字段的位置
+        l = (unsigned long long *) iov[7 + i * 4 + 1].iov_base;
+        *l = htobe64(*l);
+        // 字段的长度
+        l = (unsigned long long *) iov[7 + i * 4 + 2].iov_base;
+        *l = htobe64(*l);
     }
 }
 

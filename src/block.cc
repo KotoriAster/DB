@@ -29,10 +29,12 @@ void SuperBlock::clear(unsigned short spaceid)
     setTimeStamp();
     // 设定数据块
     setFirst(0);
+    // 设定maxid
+    setMaxid(0);
     // 设定self
     setSelf();
     // 设定空闲块，缺省从1开始
-    setIdle(1);
+    setIdle(0);
     // 设定空闲空间
     setFreeSpace(sizeof(SuperHeader));
     // 设置checksum

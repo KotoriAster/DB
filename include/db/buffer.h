@@ -9,6 +9,7 @@
 #ifndef __DB_BUFFER_H__
 #define __DB_BUFFER_H__
 
+#include <string>
 #include <map>
 #include <atomic>
 
@@ -49,7 +50,8 @@ struct BufDesp
 class FilePool;
 class Buffer
 {
-    using BlockMap = std::map<std::pair<const char *, unsigned int>, BufDesp *>;
+  public:
+    using BlockMap = std::map<std::pair<std::string, unsigned int>, BufDesp *>;
 
     unsigned char BUFFER_LOCKED = 0x1; // 锁定buffer
     unsigned char BUFFER_DIRTY = 0x2;  // 脏buffer

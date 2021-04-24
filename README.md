@@ -20,6 +20,21 @@
 
 4. make
 
+## 修订记录
+
+[2021.04.24] 增加buffer管理层，统一管理所有缓冲。缓冲大小为BLOCK_SIZE，由一个BufDesp结构管理，BufDesp内部有一个引用计数，当引用计数大于0，该缓冲出借给用户，不能释放。
+向上层暴露几个接口：borrow，write，relref。borrow相当与read，write只是标记了DIRTY，relref释放借用的缓冲。
+
+## TODO
+
+1. struct iovec结构应该包含一个类型的指针，这样就可以避免来回的betoh，很烦。
+
+2. 超块的管理有待完善；
+
+3. wal日志；
+
+4. buffer层需要一个协程来刷盘；
+
 ## 实验1 聚集存储
 
 在底层实现聚集存储，定义Block、Record等元素，导出记录的增加、删除、更新、枚举接口。
