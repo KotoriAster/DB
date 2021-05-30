@@ -87,6 +87,7 @@ struct SuperHeader : CommonHeader
     unsigned int self;  // 本块id(4B)
     unsigned int maxid; // 最大的blockid(4B)
     unsigned int pad;   // 填充位(4B)
+    long long records;  // 记录数目(8B)
 };
 
 // 空闲块头部
@@ -114,7 +115,7 @@ using MetaHeader = DataHeader;
 //
 class Block
 {
-  protected:
+  public:
     unsigned char *buffer_; // block对应的buffer
 
   public:
@@ -283,6 +284,17 @@ class SuperBlock : public Block
         SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
         header->freespace = htobe16(freespace);
     }
+
+    inline void setRecords(long long s)
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        header->records = htobe64(s);
+    }
+    inline long long getRecords()
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        return be64toh(header->records);
+    }
 };
 
 ////
@@ -429,6 +441,18 @@ class MetaBlock : public Block
     {
         type->sort(buffer_, key);
     }
+
+    // 引用slots[]
+    std::pair<unsigned char *, unsigned short> refslots(unsigned short index)
+    {
+        if (buffer_ == nullptr || index >= getSlots())
+            return std::pair<unsigned char *, unsigned short>(nullptr, 0);
+
+        Slot *slots = getSlotsPointer();
+        return std::pair<unsigned char *, unsigned short>(
+            buffer_ + be16toh(slots[index].offset),
+            be16toh(slots[index].length));
+    }
 };
 
 ////
@@ -438,20 +462,31 @@ class MetaBlock : public Block
 class Table;
 class DataBlock : public MetaBlock
 {
-  protected:
-    RelationInfo *meta_; // 元数据指针
-    Table *table_;       // 指向table
+  public:
+    struct RecordIterator
+    {
+        DataBlock *block;
+        unsigned short index;
+
+        RecordIterator();
+        ~RecordIterator();
+        RecordIterator(const RecordIterator &other);
+
+        // 前置操作
+        RecordIterator &operator++();
+        // 后置操作
+        RecordIterator operator++(int);
+        // 数据块指针
+        Record *operator->();
+    };
+
+  public:
+    Table *table_; // 指向table
 
   public:
     DataBlock()
-        : meta_(NULL)
-        , table_(NULL)
+        : table_(NULL)
     {}
-
-    // 设定meta
-    inline void setMeta(RelationInfo *meta) { meta_ = meta; }
-    // 获取meta
-    inline RelationInfo *getMeta() { return meta_; }
 
     // 设定table
     inline void setTable(Table *table) { table_ = table; }
@@ -474,7 +509,8 @@ class DataBlock : public MetaBlock
     // 返回值：
     // true - 表示记录完全插入
     // false - 表示block被分裂
-    bool insertRecord(std::vector<struct iovec> &iov);
+    std::pair<bool, unsigned short>
+    insertRecord(std::vector<struct iovec> &iov);
     // 修改记录
     // 修改一条存在的记录
     // 先标定原记录为tomestone，然后插入新记录
@@ -483,10 +519,14 @@ class DataBlock : public MetaBlock
     // 给定新增的记录大小和位置，计算从何处开始分裂该block
     // 1. 先按照键排序
     // 2. 从0开始枚举所有记录，累加长度，何时超过一半，即为分裂位置
-    unsigned short splitPosition(size_t space, unsigned short index);
+    std::pair<unsigned short, bool>
+    splitPosition(size_t space, unsigned short index);
     // 移动一条记录到新的block
     // 如果新block空间不够，简单地返回false
     bool moveRecord(unsigned short index, DataBlock &other);
+
+    // 记录分配长度
+    unsigned short requireLength(std::vector<struct iovec> &iov);
 };
 
 } // namespace db

@@ -541,7 +541,7 @@ SmallIntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
     SmallIntCompare2 compare;
     compare.buffer = block;
     compare.key = key;
-    compare.val = *(reinterpret_cast<unsigned short *>(val));
+    compare.val = be16toh(*(reinterpret_cast<unsigned short *>(val)));
 
     // 搜索值放在compare.val中，-1只是占位
     Slot dump;
@@ -562,7 +562,7 @@ IntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
     IntCompare2 compare;
     compare.buffer = block;
     compare.key = key;
-    compare.val = *(reinterpret_cast<unsigned int *>(val));
+    compare.val = be32toh(*(reinterpret_cast<unsigned int *>(val)));
 
     // 搜索值放在compare.val中，-1只是占位
     Slot dump;
@@ -583,7 +583,7 @@ BigIntSearch(unsigned char *block, unsigned int key, void *val, size_t len)
     BigIntCompare2 compare;
     compare.buffer = block;
     compare.key = key;
-    compare.val = *(reinterpret_cast<unsigned long long *>(val));
+    compare.val = be64toh(*(reinterpret_cast<unsigned long long *>(val)));
 
     // 搜索值放在compare.val中，-1只是占位
     Slot dump;
@@ -629,6 +629,69 @@ static void BigIntBetoh(void *buf)
     *p = be64toh(*p);
 }
 
+static bool charless(
+    unsigned char *x,
+    unsigned int xlen,
+    unsigned char *y,
+    unsigned int ylen)
+{
+    if (xlen < ylen) {
+        int ret = memcmp(x, y, xlen);
+        if (ret < 0)
+            return true;
+        else if (ret > 0)
+            return false;
+        else
+            return true;
+    } else {
+        int ret = memcmp(x, y, ylen);
+        if (ret < 0)
+            return true;
+        else if (ret > 0)
+            return false;
+        else
+            return false;
+    }
+}
+static bool tinyintless(
+    unsigned char *x,
+    unsigned int xlen,
+    unsigned char *y,
+    unsigned int ylen)
+{
+    return *x < *y;
+}
+static bool smallintless(
+    unsigned char *x,
+    unsigned int xlen,
+    unsigned char *y,
+    unsigned int ylen)
+{
+    unsigned short *sx = (unsigned short *) x;
+    unsigned short *sy = (unsigned short *) y;
+    return be16toh(*sx) < be16toh(*sy);
+}
+static bool intless(
+    unsigned char *x,
+    unsigned int xlen,
+    unsigned char *y,
+    unsigned int ylen)
+{
+    unsigned int *sx = (unsigned int *) x;
+    unsigned int *sy = (unsigned int *) y;
+    return be32toh(*sx) < be32toh(*sy);
+}
+static bool bigintless(
+    unsigned char *x,
+    unsigned int xlen,
+    unsigned char *y,
+    unsigned int ylen)
+{
+    unsigned long long *sx = (unsigned long long *) x;
+    unsigned long long *sy = (unsigned long long *) y;
+    return be64toh(*sx) < be64toh(*sy);
+}
+
 DataType *findDataType(const char *name)
 {
     static DataType gdatatype[] = {
@@ -636,36 +699,42 @@ DataType *findDataType(const char *name)
          65535,
          CharSort,
          CharSearch,
+         charless,
          CharHtobe,
          CharBetoh}, // 0
         {"VARCHAR",
          -65535,
          VarCharSort,
          VarCharSearch,
+         charless,
          CharHtobe,
          CharBetoh}, // 1
         {"TINYINT",  //
          1,
          TinyIntSort,
          TinyIntSearch,
+         tinyintless,
          CharHtobe,
          CharBetoh}, // 2
         {"SMALLINT",
          2,
          SmallIntSort,
          SmallIntSearch,
+         smallintless,
          SmallIntHtobe,
          SmallIntBetoh}, // 3
         {"INT",          //
          4,
          IntSort,
          IntSearch,
+         intless,
          IntHtobe,
          IntBetoh}, // 4
         {"BIGINT",  //
          8,
          BigIntSort,
          BigIntSearch,
+         bigintless,
          BigIntHtobe,
          BigIntBetoh}, // 5
         {},            // x

@@ -60,7 +60,7 @@ class Buffer
   private:
     BufDesp *idle_;         // 空闲buffer
     BufDesp lru_;           // 最近访问队列
-    BlockMap map_;          // 块表
+    BlockMap map_;          // 块表 table+blockid --> BufDesp
     unsigned char *buffer_; // 所有buffer
     FilePool *filepool_;    // 文件池
     size_t idleCount_;      // 空闲块个数

@@ -29,6 +29,12 @@ struct DataType
     // 返回值：返回lowerbound的位置
     using Search = unsigned short (
             *)(unsigned char *block, unsigned int key, void *val, size_t len);
+    // 比较键
+    using Less = bool (*)(
+        unsigned char *x,
+        unsigned int xlen,
+        unsigned char *y,
+        unsigned int ylen);
     // 大序与主机字节序之间的转换函数
     using Htobe = void (*)(void *);
     using Betoh = void (*)(void *);
@@ -37,6 +43,7 @@ struct DataType
     ptrdiff_t size;   // >0表示固定，<0表示最大大小
     Sort sort;        // slots[]排序函数
     Search search;    // slots[]查找函数
+    Less less;        // 比较键
     Htobe htobe;      // 转化为大序
     Betoh betoh;      // 转化为主机字节序
 };

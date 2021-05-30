@@ -122,7 +122,7 @@ class Schema
     void htobe(std::vector<struct iovec> &iov);
 };
 
-// 初始化数据库全局变量
+// 初始化数据库全局变量，缺省buffer大小为256MB
 void dbInit(size_t bufsize = 256);
 
 // 全局schema

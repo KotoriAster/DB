@@ -10,6 +10,7 @@
 #include <cmath>
 #include <db/block.h>
 #include <db/record.h>
+#include <db/table.h>
 
 namespace db {
 
@@ -35,6 +36,8 @@ void SuperBlock::clear(unsigned short spaceid)
     setSelf();
     // 设定空闲块，缺省从1开始
     setIdle(0);
+    // 设定记录数目
+    setRecords(0);
     // 设定空闲空间
     setFreeSpace(sizeof(SuperHeader));
     // 设置checksum
@@ -193,81 +196,102 @@ unsigned short DataBlock::searchRecord(void *buf, size_t len)
     DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
 
     // 获取key位置
-    RelationInfo *info = getMeta();
+    RelationInfo *info = table_->info_;
     unsigned int key = info->key;
 
     // 调用数据类型的搜索
     return info->fields[key].type->search(buffer_, key, buf, len);
 }
 
-unsigned short DataBlock::splitPosition(size_t space, unsigned short index)
+std::pair<unsigned short, bool>
+DataBlock::splitPosition(size_t space, unsigned short index)
 {
-    // 先按照键排序slots[]
     DataHeader *header = reinterpret_cast<DataHeader *>(buffer_);
-    RelationInfo *info = getMeta();
+    RelationInfo *info = table_->info_;
     unsigned int key = info->key;
-    reorder(info->fields[key].type, key);
+    static const unsigned short BlockHalf =
+        (BLOCK_SIZE - sizeof(DataHeader) - 8) / 2; // 一半的大小
 
     // 枚举所有记录
     unsigned short count = getSlots();
     size_t half = 0;
     Slot *slots = getSlotsPointer();
-    for (unsigned short i = 0; i < count; ++i) {
+    bool included = false;
+    unsigned short i;
+    for (i = 0; i < count; ++i) {
         // 如果是index，则将需要插入的记录空间算在内
         if (i == index) {
-            half += space;
-            if (half > ALIGN_TO_SIZE(
-                           (BLOCK_SIZE - sizeof(DataHeader)) / 2 -
-                           count * sizeof(Slot))) {
-                // 超过一半
-                return i;
-            }
+            // 这里的计算并不精确，没有准确考虑slot的大小，但只算一半没有太大的误差。
+            half += ALIGN_TO_SIZE(space) + sizeof(Slot);
+            if (half > BlockHalf)
+                break;
+            else
+                included = true;
         }
 
         // fallthrough, i != index
         half += be16toh(slots[i].length);
-        if (half >
-            ALIGN_TO_SIZE(
-                (BLOCK_SIZE - sizeof(DataHeader)) / 2 - count * sizeof(Slot))) {
-            // 超过一半
-            return i;
-        }
+        if (half > BlockHalf) break;
     }
-    return count;
+    return std::pair<unsigned short, bool>(i, included);
 }
 
-bool DataBlock::insertRecord(std::vector<struct iovec> &iov)
+unsigned short DataBlock::requireLength(std::vector<struct iovec> &iov)
 {
-    RelationInfo *info = getMeta();
+    size_t length = ALIGN_TO_SIZE(Record::size(iov)); // 对齐8B后的长度
+    size_t trailer =
+        ALIGN_TO_SIZE((getSlots() + 1) * sizeof(Slot) + sizeof(unsigned int)) -
+        ALIGN_TO_SIZE(
+            getSlots() * sizeof(Slot) +
+            sizeof(unsigned int)); // trailer新增部分
+    return (unsigned short) (length + trailer);
+}
+
+std::pair<bool, unsigned short>
+DataBlock::insertRecord(std::vector<struct iovec> &iov)
+{
+    RelationInfo *info = table_->info_;
     unsigned int key = info->key;
     DataType *type = info->fields[key].type;
 
-    // 如果block空间足够，插入
-    size_t blen = getFreespaceSize();  // 该block的富余空间
-    size_t length = Record::size(iov); // 记录的总长度
-    if (blen >= length) {
-        // 分配空间
-        unsigned char *buf = allocate((unsigned short) length);
-        // 填写记录
-        Record record;
-        record.attach(buf, (unsigned short) length);
-        unsigned char header = 0;
-        record.set(iov, &header);
-        // 重新排序
-        reorder(type, key);
-        return true;
-    }
-
-    // 找到插入的位置，计算前半部分的空间，看是否能够插入
+    // 先确定插入位置
     unsigned short index =
         type->search(buffer_, key, iov[key].iov_base, iov[key].iov_len);
-    unsigned short half = splitPosition(length, index);
 
-    // 前半部分空间不够，在新block上插入
+    // 比较key
+    Record record;
+    if (index < getSlots()) {
+        Slot *slots = getSlotsPointer();
+        record.attach(
+            buffer_ + be16toh(slots[index].offset),
+            be16toh(slots[index].length));
+        unsigned char *pkey;
+        unsigned int len;
+        record.refByIndex(&pkey, &len, key);
+        if (memcmp(pkey, iov[key].iov_base, len) == 0) // key相等不能插入
+            return std::pair<bool, unsigned short>(false, -1);
+    }
 
-    // 挪动后半部分到新的block
+    // 如果block空间足够，插入
+    size_t blen = getFreespaceSize(); // 该block的富余空间
+    unsigned short actlen = (unsigned short) Record::size(iov);
+    unsigned short alignlen = ALIGN_TO_SIZE(actlen);
+    unsigned short trailerlen =
+        ALIGN_TO_SIZE((getSlots() + 1) * sizeof(Slot) + sizeof(unsigned int)) -
+        ALIGN_TO_SIZE(getSlots() * sizeof(Slot) + sizeof(unsigned int));
+    if (blen < actlen + trailerlen)
+        return std::pair<bool, unsigned short>(false, index);
 
-    return true;
+    // 分配空间
+    unsigned char *buf = allocate(actlen);
+    // 填写记录
+    record.attach(buf, actlen);
+    unsigned char header = 0;
+    record.set(iov, &header);
+    // 重新排序
+    reorder(type, key);
+
+    return std::pair<bool, unsigned short>(true, index);
 }
 
 } // namespace db

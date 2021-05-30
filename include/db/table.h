@@ -13,6 +13,8 @@
 #include <vector>
 #include "./record.h"
 #include "./schema.h"
+#include "./block.h"
+#include "./buffer.h"
 
 namespace db {
 
@@ -24,10 +26,24 @@ class Table
 {
   public:
     // 表的迭代器
-    struct Iterator
+    struct BlockIterator
     {
-        unsigned short blockid; // 当前blockid
-        unsigned short index;   // slots的下标
+        DataBlock block;
+        BufDesp *bufdesp;
+
+        BlockIterator();
+        ~BlockIterator();
+        BlockIterator(const BlockIterator &other);
+
+        // 前置操作
+        BlockIterator &operator++();
+        // 后置操作
+        BlockIterator operator++(int);
+        // 数据块指针
+        DataBlock *operator->();
+
+        // 释放buffer
+        void release();
     };
 
   public:
@@ -35,7 +51,7 @@ class Table
     RelationInfo *info_; // 表的元数据
     unsigned int maxid_; // 最大的blockid
     unsigned int idle_;  // 空闲链
-    unsigned int first_; // meta链
+    unsigned int first_; // 数据链
 
   public:
     Table()
@@ -48,19 +64,39 @@ class Table
     // 打开一张表
     int open(const char *name);
 
-    // 插入一条记录
-    int insert(std::vector<struct iovec> &iov);
+    // 定位一个block后，插入一条记录
+    int insert(unsigned int blkid, std::vector<struct iovec> &iov);
     int update();
     int remove();
-    // begin, end
 
-    // 新分配一个block，范围blockid
+    // 采用枚举的方式定位一个key在哪个block
+    unsigned int locate(void *keybuf, unsigned int len);
+
+    // 返回表上总的记录数目
+    size_t recordCount();
+
+    // block迭代器
+    BlockIterator beginblock();
+    BlockIterator endblock();
+
+    // 新分配一个block，返回blockid，但并没有将该block插入数据链上
     unsigned int allocate();
     // 回收一个block
     void deallocate(unsigned int blockid);
-    // 采用枚举的方式定位一个key在哪个block
-    unsigned int locate(void *keybuf, unsigned int len);
 };
+
+inline bool
+operator==(const Table::BlockIterator &x, const Table::BlockIterator &y)
+{
+    return x.block.table_ == y.block.table_ &&
+           x.block.buffer_ == y.block.buffer_;
+}
+inline bool
+operator!=(const Table::BlockIterator &x, const Table::BlockIterator &y)
+{
+    return x.block.table_ != y.block.table_ ||
+           x.block.buffer_ != y.block.buffer_;
+}
 
 } // namespace db
 

@@ -22,8 +22,13 @@
 
 ## 修订记录
 
-[2021.04.24] 增加buffer管理层，统一管理所有缓冲。缓冲大小为BLOCK_SIZE，由一个BufDesp结构管理，BufDesp内部有一个引用计数，当引用计数大于0，该缓冲出借给用户，不能释放。
-向上层暴露几个接口：borrow，write，relref。borrow相当与read，write只是标记了DIRTY，relref释放借用的缓冲。
+### [2021.05.30]
+
+完成Block::insertRecord，正在处理Table::insert，需要添加移动记录的方案。打算在Block中添加一个RecordIterator，这个迭代器是数组型的，功能比Table::BlockIterator要强。
+
+### [2021.04.24]
+
+增加buffer管理层，统一管理所有缓冲。缓冲大小为BLOCK_SIZE，由一个BufDesp结构管理，BufDesp内部有一个引用计数，当引用计数大于0，该缓冲出借给用户，不能释放。向上层暴露几个接口：borrow，write，relref。borrow相当与read，write只是标记了DIRTY，relref释放借用的缓冲。
 
 ## TODO
 

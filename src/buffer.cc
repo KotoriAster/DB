@@ -114,6 +114,7 @@ BufDesp *Buffer::borrow(const char *table, unsigned int blockid)
     // 然后从idle上分配一个block
     BufDesp *descriptor = allocFromIdle();
     descriptor->name = table;
+    descriptor->blockid = blockid;
     // prepend到lru的头部
     prependLru(descriptor);
 
