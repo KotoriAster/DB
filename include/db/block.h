@@ -466,6 +466,7 @@ class DataBlock : public MetaBlock
     struct RecordIterator
     {
         DataBlock *block;
+        Record record;
         unsigned short index;
 
         RecordIterator();
@@ -476,6 +477,13 @@ class DataBlock : public MetaBlock
         RecordIterator &operator++();
         // 后置操作
         RecordIterator operator++(int);
+        // 前置操作
+        RecordIterator &operator--();
+        // 后置操作
+        RecordIterator operator--(int);
+        // 加减操作
+        RecordIterator &operator+=(int);
+        RecordIterator &operator-=(int);
         // 数据块指针
         Record *operator->();
     };
@@ -521,13 +529,65 @@ class DataBlock : public MetaBlock
     // 2. 从0开始枚举所有记录，累加长度，何时超过一半，即为分裂位置
     std::pair<unsigned short, bool>
     splitPosition(size_t space, unsigned short index);
-    // 移动一条记录到新的block
+    // 拷贝一条记录
     // 如果新block空间不够，简单地返回false
-    bool moveRecord(unsigned short index, DataBlock &other);
+    bool copyRecord(Record &record);
 
     // 记录分配长度
     unsigned short requireLength(std::vector<struct iovec> &iov);
+
+    RecordIterator beginrecord();
+    RecordIterator endrecord();
 };
+
+inline bool operator==(
+    const DataBlock::RecordIterator &x,
+    const DataBlock::RecordIterator &y)
+{
+    if (x.block == nullptr && y.block == nullptr)
+        return true;
+    else if (x.block == nullptr || y.block == nullptr)
+        return false;
+    else if (x.block == y.block && x.index == y.index)
+        return true;
+    else
+        return false;
+}
+inline bool operator!=(
+    const DataBlock::RecordIterator &x,
+    const DataBlock::RecordIterator &y)
+{
+    return !operator==(x, y);
+}
+// 以下操作要求block相同
+inline bool operator<(
+    const DataBlock::RecordIterator &x,
+    const DataBlock::RecordIterator &y)
+{
+    // ASSERT(x.block == y.block);
+    return x.index < y.index;
+}
+inline bool operator>(
+    const DataBlock::RecordIterator &x,
+    const DataBlock::RecordIterator &y)
+{
+    // ASSERT(x.block == y.block);
+    return x.index > y.index;
+}
+inline bool operator<=(
+    const DataBlock::RecordIterator &x,
+    const DataBlock::RecordIterator &y)
+{
+    // ASSERT(x.block == y.block);
+    return x.index <= y.index;
+}
+inline bool operator>=(
+    const DataBlock::RecordIterator &x,
+    const DataBlock::RecordIterator &y)
+{
+    // ASSERT(x.block == y.block);
+    return x.index >= y.index;
+}
 
 } // namespace db
 

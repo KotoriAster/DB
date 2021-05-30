@@ -54,7 +54,7 @@ class Record
   public:
     static const int HEADER_SIZE = 1; // 头部1B
 
-  private:
+  public:
     unsigned char *buffer_; // 记录buffer
     unsigned short length_; // buffer长度
 
@@ -69,6 +69,11 @@ class Record
     {
         buffer_ = buffer;
         length_ = length;
+    }
+    inline void detach()
+    {
+        buffer_ = nullptr;
+        length_ = 0;
     }
     // 整个记录长度+header偏移量
     static size_t size(std::vector<struct iovec> &iov);

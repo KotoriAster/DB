@@ -670,4 +670,70 @@ TEST_CASE("db/block.h")
         kBuffer.writeBuf(bd);
         kBuffer.releaseBuf(bd);
     }
+
+    SECTION("iterator")
+    {
+        Table table;
+        table.open("table");
+
+        // 加载第1个data
+        DataBlock data;
+        // 设定block的meta
+        data.setTable(&table);
+        // 关联数据
+        BufDesp *bd = kBuffer.borrow("table", 1);
+        data.attach(bd->buffer);
+
+        DataBlock::RecordIterator ri = data.beginrecord();
+        REQUIRE(ri.index == 0);
+        unsigned char *pkey;
+        unsigned int len;
+        ri->refByIndex(&pkey, &len, 0);
+        long long key;
+        memcpy(&key, pkey, len);
+        key = be64toh(key);
+        REQUIRE(key == 3); // 3 5 7 11
+
+        ++ri;
+        ri->refByIndex(&pkey, &len, 0);
+        memcpy(&key, pkey, len);
+        key = be64toh(key);
+        REQUIRE(key == 5); // 3 5 7 11
+
+        ri++;
+        ri->refByIndex(&pkey, &len, 0);
+        memcpy(&key, pkey, len);
+        key = be64toh(key);
+        REQUIRE(key == 7); // 3 5 7 11
+
+        --ri;
+        ri->refByIndex(&pkey, &len, 0);
+        memcpy(&key, pkey, len);
+        key = be64toh(key);
+        REQUIRE(key == 5); // 3 5 7 11
+
+        ri--;
+        ri->refByIndex(&pkey, &len, 0);
+        memcpy(&key, pkey, len);
+        key = be64toh(key);
+        REQUIRE(key == 3); // 3 5 7 11
+
+        --ri;
+        bool ret = ri == data.endrecord();
+        REQUIRE(ret);
+
+        ri += 2;
+        ri->refByIndex(&pkey, &len, 0);
+        memcpy(&key, pkey, len);
+        key = be64toh(key);
+        REQUIRE(key == 5); // 3 5 7 11
+
+        ri -= 3;
+        ri->refByIndex(&pkey, &len, 0);
+        memcpy(&key, pkey, len);
+        key = be64toh(key);
+        REQUIRE(key == 11); // 3 5 7 11
+
+        kBuffer.releaseBuf(bd);
+    }
 }

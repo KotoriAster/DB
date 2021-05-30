@@ -14,6 +14,105 @@
 
 namespace db {
 
+DataBlock::RecordIterator::RecordIterator()
+    : block(nullptr)
+    , index(0)
+{}
+DataBlock::RecordIterator::~RecordIterator() {}
+DataBlock::RecordIterator::RecordIterator(const RecordIterator &other)
+    : block(other.block)
+    , record(other.record)
+    , index(other.index)
+{}
+
+DataBlock::RecordIterator &DataBlock::RecordIterator::operator++()
+{
+    if (block == nullptr || block->getSlots() == 0) return *this;
+    index = (++index) % (block->getSlots() + 1);
+    if (index == block->getSlots()) {
+        record.detach();
+        return *this;
+    }
+    Slot *slots = block->getSlotsPointer();
+    record.attach(
+        block->buffer_ + be16toh(slots[index].offset),
+        be16toh(slots[index].length));
+    return *this;
+}
+DataBlock::RecordIterator DataBlock::RecordIterator::operator++(int)
+{
+    RecordIterator tmp(*this);
+    if (block == nullptr || block->getSlots() == 0) return tmp;
+    index = (++index) % (block->getSlots() + 1);
+    if (index == block->getSlots()) {
+        record.detach();
+        return tmp;
+    }
+    Slot *slots = block->getSlotsPointer();
+    record.attach(
+        block->buffer_ + be16toh(slots[index].offset),
+        be16toh(slots[index].length));
+    return tmp;
+}
+DataBlock::RecordIterator &DataBlock::RecordIterator::operator--()
+{
+    if (block == nullptr || block->getSlots() == 0) return *this;
+    index = (index + block->getSlots()) % (block->getSlots() + 1);
+    if (index == block->getSlots()) {
+        record.detach();
+        return *this;
+    }
+    Slot *slots = block->getSlotsPointer();
+    record.attach(
+        block->buffer_ + be16toh(slots[index].offset),
+        be16toh(slots[index].length));
+    return *this;
+}
+DataBlock::RecordIterator DataBlock::RecordIterator::operator--(int)
+{
+    RecordIterator tmp(*this);
+    if (block == nullptr || block->getSlots() == 0) return tmp;
+    index = (index + block->getSlots()) % (block->getSlots() + 1);
+    if (index == block->getSlots()) {
+        record.detach();
+        return tmp;
+    }
+    Slot *slots = block->getSlotsPointer();
+    record.attach(
+        block->buffer_ + be16toh(slots[index].offset),
+        be16toh(slots[index].length));
+    return tmp;
+}
+Record *DataBlock::RecordIterator::operator->() { return &record; }
+DataBlock::RecordIterator &DataBlock::RecordIterator::operator+=(int step)
+{
+    if (block == nullptr || block->getSlots() == 0) return *this;
+    index = (index + step) % (block->getSlots() + 1);
+    if (index == block->getSlots()) {
+        record.detach();
+        return *this;
+    }
+    Slot *slots = block->getSlotsPointer();
+    record.attach(
+        block->buffer_ + be16toh(slots[index].offset),
+        be16toh(slots[index].length));
+    return *this;
+}
+DataBlock::RecordIterator &DataBlock::RecordIterator::operator-=(int step)
+{
+    if (block == nullptr || block->getSlots() == 0) return *this;
+    index = (index + step + block->getSlots()) % (block->getSlots() + 1);
+    if (index == block->getSlots()) {
+        record.detach();
+        return *this;
+    }
+    Slot *slots = block->getSlotsPointer();
+    record.attach(
+        block->buffer_ + be16toh(slots[index].offset),
+        be16toh(slots[index].length));
+    return *this;
+}
+
 void SuperBlock::clear(unsigned short spaceid)
 {
     // 清buffer
@@ -292,6 +391,49 @@ DataBlock::insertRecord(std::vector<struct iovec> &iov)
     reorder(type, key);
 
     return std::pair<bool, unsigned short>(true, index);
+}
+
+bool DataBlock::copyRecord(Record &record)
+{
+    // 判断剩余空间是否足够
+    size_t blen = getFreespaceSize(); // 该block的富余空间
+    unsigned short actlen = (unsigned short) record.allocLength();
+    unsigned short trailerlen =
+        ALIGN_TO_SIZE((getSlots() + 1) * sizeof(Slot) + sizeof(unsigned int)) -
+        ALIGN_TO_SIZE(getSlots() * sizeof(Slot) + sizeof(unsigned int));
+    if (blen < actlen + trailerlen) return false;
+
+    // 分配空间，然后copy
+    unsigned char *buf = allocate((unsigned short) record.allocLength());
+    memcpy(buf, record.buffer_, record.allocLength());
+
+    // 重新排序
+    RelationInfo *info = table_->info_;
+    unsigned int key = info->key;
+    DataType *type = info->fields[key].type;
+    reorder(type, key);
+    return true;
+}
+
+DataBlock::RecordIterator DataBlock::beginrecord()
+{
+    RecordIterator ri;
+    ri.block = this;
+    ri.index = 0;
+
+    if (getSlots()) {
+        Slot *slots = getSlotsPointer();
+        ri.record.attach(
+            buffer_ + be16toh(slots[0].offset), be16toh(slots[0].length));
+    }
+    return ri;
+}
+DataBlock::RecordIterator DataBlock::endrecord()
+{
+    RecordIterator ri;
+    ri.block = this;
+    ri.index = getSlots();
+    return ri;
 }
 
 } // namespace db
