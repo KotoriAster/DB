@@ -250,7 +250,7 @@ int Table::insert(unsigned int blkid, std::vector<struct iovec> &iov)
     next.attach(bd2->buffer);
 
     // 移动记录到新的block上
-    while (data.getSlots() >= split_position.first) {
+    while (data.getSlots() > split_position.first) {
         Record record;
         data.refslots(split_position.first, record);
         next.copyRecord(record);

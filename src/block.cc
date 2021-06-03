@@ -372,7 +372,7 @@ DataBlock::insertRecord(std::vector<struct iovec> &iov)
     }
 
     // 如果block空间足够，插入
-    size_t blen = getFreespaceSize(); // 该block的富余空间
+    size_t blen = getFreeSize(); // 该block的富余空间
     unsigned short actlen = (unsigned short) Record::size(iov);
     unsigned short alignlen = ALIGN_TO_SIZE(actlen);
     unsigned short trailerlen =

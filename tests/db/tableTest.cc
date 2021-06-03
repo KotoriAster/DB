@@ -242,10 +242,52 @@ TEST_CASE("db/table.h")
         REQUIRE(bi->getSelf() == 1);
         REQUIRE(bi->getNext() == 2);
         unsigned short count1 = bi->getSlots();
+        unsigned short fs = bi->getFreeSize();
         ++bi;
         REQUIRE(bi->getSelf() == 2);
         REQUIRE(bi->getNext() == 0);
         unsigned short count2 = bi->getSlots();
         REQUIRE(count1 + count2 == 96);
+    }
+
+    // 再插入1000条记录
+    SECTION("insert3")
+    {
+        Table table;
+        table.open("table");
+        DataType *type = table.info_->fields[table.info_->key].type;
+
+        // 准备添加
+        std::vector<struct iovec> iov(3);
+        long long nid;
+        char phone[20];
+        char addr[128];
+
+        iov[0].iov_base = &nid;
+        iov[0].iov_len = 8;
+        iov[1].iov_base = phone;
+        iov[1].iov_len = 20;
+        iov[2].iov_base = (void *) addr;
+        iov[2].iov_len = 128;
+
+        int count = 96;
+        int count2 = 0;
+        for (int i = 0; i < 1000; ++i) {
+            nid = rand();
+            type->htobe(&nid);
+            // locate位置
+            unsigned int blkid =
+                table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len);
+            // 插入记录
+            int ret = table.insert(blkid, iov);
+            if (ret == S_OK) ++count;
+        }
+
+        for (Table::BlockIterator bi = table.beginblock();
+             bi != table.endblock();
+             ++bi)
+            count2 += bi->getSlots();
+        REQUIRE(count == count2);
+        // printf("count=%d\n", count);
     }
 }

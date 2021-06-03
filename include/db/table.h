@@ -88,14 +88,22 @@ class Table
 inline bool
 operator==(const Table::BlockIterator &x, const Table::BlockIterator &y)
 {
-    return x.block.table_ == y.block.table_ &&
-           x.block.buffer_ == y.block.buffer_;
+    if (x.block.table_ != y.block.table_)
+        return false;
+    else if (x.block.buffer_ == y.block.buffer_)
+        return true;
+    else
+        return false;
 }
 inline bool
 operator!=(const Table::BlockIterator &x, const Table::BlockIterator &y)
 {
-    return x.block.table_ != y.block.table_ ||
-           x.block.buffer_ != y.block.buffer_;
+    if (x.block.table_ != y.block.table_)
+        return true;
+    else if (x.block.buffer_ != y.block.buffer_)
+        return true;
+    else
+        return false;
 }
 
 } // namespace db
