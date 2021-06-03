@@ -30,9 +30,10 @@ Table::BlockIterator &Table::BlockIterator::operator++()
     if (block.buffer_ == nullptr) return *this;
     unsigned int blockid = block.getNext();
     kBuffer.releaseBuf(bufdesp);
-    if (blockid)
+    if (blockid) {
         bufdesp = kBuffer.borrow(block.table_->name_.c_str(), blockid);
-    else
+        block.attach(bufdesp->buffer);
+    } else
         block.buffer_ = nullptr;
     return *this;
 }
@@ -43,9 +44,10 @@ Table::BlockIterator Table::BlockIterator::operator++(int)
     if (block.buffer_ == nullptr) return *this;
     unsigned int blockid = block.getNext();
     kBuffer.releaseBuf(bufdesp);
-    if (blockid)
+    if (blockid) {
         bufdesp = kBuffer.borrow(block.table_->name_.c_str(), blockid);
-    else
+        block.attach(bufdesp->buffer);
+    } else
         block.buffer_ = nullptr;
     return tmp;
 }
@@ -88,9 +90,11 @@ unsigned int Table::allocate()
     // 空闲链上有block
     DataBlock data;
     SuperBlock super;
+    BufDesp *desp;
+
     if (idle_) {
         // 读idle块，获得下一个空闲块
-        BufDesp *desp = kBuffer.borrow(name_.c_str(), idle_);
+        desp = kBuffer.borrow(name_.c_str(), idle_);
         data.attach(desp->buffer);
         unsigned int next = data.getNext();
         data.detach();
@@ -105,20 +109,31 @@ unsigned int Table::allocate()
         kBuffer.writeBuf(desp);
         desp->relref();
 
-        unsigned int current = next;
+        unsigned int current = idle_;
         idle_ = next;
+
+        desp = kBuffer.borrow(name_.c_str(), current);
+        data.attach(desp->buffer);
+        data.clear(1, current, BLOCK_TYPE_DATA);
+        desp->relref();
+
         return current;
     }
 
     // 没有空闲块
     ++maxid_;
     // 读超块，设定空闲块
-    BufDesp *desp = kBuffer.borrow(name_.c_str(), 0);
+    desp = kBuffer.borrow(name_.c_str(), 0);
     super.attach(desp->buffer);
     super.setMaxid(maxid_);
     super.setChecksum();
     super.detach();
     kBuffer.writeBuf(desp);
+    desp->relref();
+    // 初始化数据块
+    desp = kBuffer.borrow(name_.c_str(), maxid_);
+    data.attach(desp->buffer);
+    data.clear(1, maxid_, BLOCK_TYPE_DATA);
     desp->relref();
 
     return maxid_;
@@ -183,9 +198,8 @@ unsigned int Table::locate(void *keybuf, unsigned int len)
     BlockIterator prev = beginblock();
     for (BlockIterator bi = beginblock(); bi != endblock(); ++bi) {
         // 获取第1个记录
-        std::pair<unsigned char *, unsigned short> ret = bi->refslots(0);
         Record record;
-        record.attach(ret.first, ret.second);
+        bi->refslots(0, record);
 
         // 与参数比较
         unsigned char *pkey;
@@ -224,7 +238,7 @@ int Table::insert(unsigned int blkid, std::vector<struct iovec> &iov)
         return EEXIST;          // key已经存在
     }
 
-    // 分裂block, TODO:
+    // 分裂block
     unsigned short insert_position = ret.second;
     std::pair<unsigned short, bool> split_position =
         data.splitPosition(Record::size(iov), insert_position);
@@ -234,9 +248,27 @@ int Table::insert(unsigned int blkid, std::vector<struct iovec> &iov)
     blkid = allocate();
     BufDesp *bd2 = kBuffer.borrow(name_.c_str(), blkid);
     next.attach(bd2->buffer);
-    // 移动记录到新的block上
 
-    return EFAULT;
+    // 移动记录到新的block上
+    while (data.getSlots() >= split_position.first) {
+        Record record;
+        data.refslots(split_position.first, record);
+        next.copyRecord(record);
+        data.deallocate(split_position.first);
+    }
+    // 插入新记录
+    if (split_position.second)
+        data.insertRecord(iov);
+    else
+        next.insertRecord(iov);
+    // 最后重排顺序
+    next.reorder(info_->fields[info_->key].type, info_->key);
+    // 维持数据链
+    next.setNext(data.getNext());
+    data.setNext(next.getSelf());
+
+    bd2->relref();
+    return S_OK;
 }
 
 size_t Table::recordCount()

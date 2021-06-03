@@ -404,14 +404,16 @@ bool DataBlock::copyRecord(Record &record)
     if (blen < actlen + trailerlen) return false;
 
     // 分配空间，然后copy
-    unsigned char *buf = allocate((unsigned short) record.allocLength());
-    memcpy(buf, record.buffer_, record.allocLength());
+    unsigned char *buf = allocate(actlen);
+    memcpy(buf, record.buffer_, actlen);
 
-    // 重新排序
+#if 0
+    // 重新排序，最后才重拍？
     RelationInfo *info = table_->info_;
     unsigned int key = info->key;
     DataType *type = info->fields[key].type;
-    reorder(type, key);
+    reorder(type, key); // 最后才重排？
+#endif
     return true;
 }
 

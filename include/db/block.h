@@ -443,15 +443,15 @@ class MetaBlock : public Block
     }
 
     // 引用slots[]
-    std::pair<unsigned char *, unsigned short> refslots(unsigned short index)
+    bool refslots(unsigned short index, Record &record)
     {
-        if (buffer_ == nullptr || index >= getSlots())
-            return std::pair<unsigned char *, unsigned short>(nullptr, 0);
+        if (buffer_ == nullptr || index >= getSlots()) return false;
 
         Slot *slots = getSlotsPointer();
-        return std::pair<unsigned char *, unsigned short>(
+        record.attach(
             buffer_ + be16toh(slots[index].offset),
             be16toh(slots[index].length));
+        return true;
     }
 };
 
