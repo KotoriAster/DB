@@ -145,7 +145,7 @@ struct SmallIntCompare
         unsigned short iy =
             be16toh(*((const unsigned short *) iovry[key].iov_base));
 
-        return be16toh(ix) < be16toh(iy);
+        return ix < iy;
     }
 };
 
@@ -177,7 +177,7 @@ struct IntCompare
         unsigned int iy =
             be32toh(*((const unsigned int *) iovry[key].iov_base));
 
-        return be32toh(ix) < be32toh(iy);
+        return ix < iy;
     }
 };
 
@@ -209,7 +209,7 @@ struct BigIntCompare
         unsigned long long iy =
             be64toh(*((const unsigned long long *) iovry[key].iov_base));
 
-        return be64toh(ix) < be64toh(iy);
+        return ix < iy;
     }
 };
 

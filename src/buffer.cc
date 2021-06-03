@@ -40,17 +40,15 @@ void Buffer::init(FilePool *fp, size_t size)
     // 初始化所有block
     BufDesp *prev = NULL;
     idleCount_ = 0;
-    for (size_t i = 0; i < size; ++i) {
-        for (size_t j = 0; j < 1024 * 1024 / BLOCK_SIZE; ++j) {
-            idle_ = (BufDesp *) (buffer_ + j * BLOCK_SIZE);
-            idle_->next = prev;
-            prev = idle_;
-            idle_->prev = NULL;
-            idle_->size = BLOCK_SIZE;
-            idle_->name = NULL;
-            idle_->type = 0;
-            ++idleCount_;
-        }
+    for (size_t i = 0; i < size * 1024 * 1024 / BLOCK_SIZE; ++i) {
+        idle_ = (BufDesp *) (buffer_ + i * BLOCK_SIZE);
+        idle_->next = prev;
+        prev = idle_;
+        idle_->prev = NULL;
+        idle_->size = BLOCK_SIZE;
+        idle_->name = NULL;
+        idle_->type = 0;
+        ++idleCount_;
     }
 }
 

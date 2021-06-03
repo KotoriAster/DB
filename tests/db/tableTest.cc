@@ -12,6 +12,64 @@
 #include <db/buffer.h>
 using namespace db;
 
+namespace {
+void dump(Table &table)
+{
+    // 打印所有记录，检查是否正确
+    int rcount = 0;
+    int bcount = 0;
+    for (Table::BlockIterator bi = table.beginblock(); bi != table.endblock();
+         ++bi, ++bcount) {
+        for (unsigned short i = 0; i < bi->getSlots(); ++i, ++rcount) {
+            Slot *slot = bi->getSlotsPointer() + i;
+            Record record;
+            record.attach(
+                bi->buffer_ + be16toh(slot->offset), be16toh(slot->length));
+
+            unsigned char *pkey;
+            unsigned int len;
+            long long key;
+            record.refByIndex(&pkey, &len, 0);
+            memcpy(&key, pkey, len);
+            key = be64toh(key);
+            printf(
+                "key=%lld, offset=%d, rcount=%d, blkid=%d\n",
+                key,
+                be16toh(slot->offset),
+                rcount,
+                bcount);
+        }
+    }
+    printf("total records=%zd\n", table.recordCount());
+}
+bool check(Table &table)
+{
+    int rcount = 0;
+    int bcount = 0;
+    long long okey = 0;
+    for (Table::BlockIterator bi = table.beginblock(); bi != table.endblock();
+         ++bi, ++bcount) {
+        for (DataBlock::RecordIterator ri = bi->beginrecord();
+             ri != bi->endrecord();
+             ++ri, ++rcount) {
+            unsigned char *pkey;
+            unsigned int len;
+            long long key;
+            ri->refByIndex(&pkey, &len, 0);
+            memcpy(&key, pkey, len);
+            key = be64toh(key);
+            if (okey >= key) {
+                dump(table);
+                printf("check error %d\n", rcount);
+                return true;
+            }
+            okey = key;
+        }
+    }
+    return false;
+}
+} // namespace
+
 TEST_CASE("db/table.h")
 {
     SECTION("less")
@@ -100,6 +158,8 @@ TEST_CASE("db/table.h")
         SuperBlock super;
         super.attach(bd->buffer);
         super.setRecords(4);
+        super.setDataCounts(1);
+        REQUIRE(!check(table));
 
         // table = id(BIGINT)+phone(CHAR[20])+name(VARCHAR)
         // 准备添加
@@ -132,6 +192,7 @@ TEST_CASE("db/table.h")
         }
         // 这里测试表明再插入到91条记录后出现分裂
         REQUIRE(i + 4 == table.recordCount());
+        REQUIRE(!check(table));
     }
 
     SECTION("split")
@@ -190,9 +251,13 @@ TEST_CASE("db/table.h")
         Table table;
         table.open("table");
 
+        REQUIRE(table.dataCount() == 1);
+        REQUIRE(table.idleCount() == 0);
+
         REQUIRE(table.maxid_ == 1);
         unsigned int blkid = table.allocate();
         REQUIRE(table.maxid_ == 2);
+        REQUIRE(table.dataCount() == 2);
 
         Table::BlockIterator bi = table.beginblock();
         REQUIRE(bi.bufdesp->blockid == 1);
@@ -203,13 +268,18 @@ TEST_CASE("db/table.h")
 
         // 回收该block
         table.deallocate(blkid);
+        REQUIRE(table.idleCount() == 1);
+        REQUIRE(table.dataCount() == 1);
         REQUIRE(table.idle_ == blkid);
 
         // 再从idle上分配
         blkid = table.allocate();
+        REQUIRE(table.idleCount() == 0);
         REQUIRE(table.maxid_ == 2);
         REQUIRE(table.idle_ == 0);
         table.deallocate(blkid);
+        REQUIRE(table.idleCount() == 1);
+        REQUIRE(table.dataCount() == 1);
     }
 
     SECTION("insert2")
@@ -242,15 +312,24 @@ TEST_CASE("db/table.h")
         REQUIRE(bi->getSelf() == 1);
         REQUIRE(bi->getNext() == 2);
         unsigned short count1 = bi->getSlots();
-        unsigned short fs = bi->getFreeSize();
         ++bi;
         REQUIRE(bi->getSelf() == 2);
         REQUIRE(bi->getNext() == 0);
         unsigned short count2 = bi->getSlots();
         REQUIRE(count1 + count2 == 96);
+        REQUIRE(count1 + count2 == table.recordCount());
+        REQUIRE(!check(table));
+
+        // dump(table);
+        // bi = table.beginblock();
+        // bi->shrink();
+        // dump(table);
+        // bi->reorder(type, 0);
+        // dump(table);
+        // REQUIRE(!check(table));
     }
 
-    // 再插入1000条记录
+    // 再插入10000条记录
     SECTION("insert3")
     {
         Table table;
@@ -272,7 +351,7 @@ TEST_CASE("db/table.h")
 
         int count = 96;
         int count2 = 0;
-        for (int i = 0; i < 1000; ++i) {
+        for (int i = 0; i < 10000; ++i) {
             nid = rand();
             type->htobe(&nid);
             // locate位置
@@ -288,6 +367,9 @@ TEST_CASE("db/table.h")
              ++bi)
             count2 += bi->getSlots();
         REQUIRE(count == count2);
-        // printf("count=%d\n", count);
+        REQUIRE(count == table.recordCount());
+        REQUIRE(table.idleCount() == 0);
+
+        REQUIRE(!check(table));
     }
 }

@@ -81,13 +81,15 @@ struct Trailer
 // 超块头部
 struct SuperHeader : CommonHeader
 {
-    unsigned int first; // 第1个数据块(4B)
-    long long stamp;    // 时戳(8B)
-    unsigned int idle;  // 空闲块(4B)
-    unsigned int self;  // 本块id(4B)
-    unsigned int maxid; // 最大的blockid(4B)
-    unsigned int pad;   // 填充位(4B)
-    long long records;  // 记录数目(8B)
+    unsigned int first;      // 第1个数据块(4B)
+    long long stamp;         // 时戳(8B)
+    unsigned int idle;       // 空闲块(4B)
+    unsigned int datacounts; // 数据块个数
+    unsigned int idlecounts; // 空闲块个数
+    unsigned int self;       // 本块id(4B)
+    unsigned int maxid;      // 最大的blockid(4B)
+    unsigned int pad;        // 填充位(4B)
+    long long records;       // 记录数目(8B)
 };
 
 // 空闲块头部
@@ -241,6 +243,32 @@ class SuperBlock : public Block
         ts.now();
         *((long long *) &ts) = htobe64(*((long long *) &ts));
         ::memcpy(&header->stamp, &ts, sizeof(TimeStamp));
+    }
+
+    // 设置datacounts
+    inline void setDataCounts(unsigned int counts)
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        header->datacounts = htobe32(counts);
+    }
+    // 获取datacounts
+    inline unsigned int getDataCounts()
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        return be32toh(header->datacounts);
+    }
+
+    // 设置idlecounts
+    inline void setIdleCounts(unsigned int counts)
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        header->idlecounts = htobe32(counts);
+    }
+    // 获取datacounts
+    inline unsigned int getIdleCounts()
+    {
+        SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
+        return be32toh(header->idlecounts);
     }
 
     // 设置self
@@ -430,8 +458,9 @@ class MetaBlock : public Block
         header->freespace = htobe16(freespace);
     }
 
-    // 分配一个空间，直接返回指针，后续需要重新排列slots[]
-    unsigned char *allocate(unsigned short space);
+    // 分配一个空间，直接返回指针，后续需要重新排列slots[]，second表示是否需要reorder
+    std::pair<unsigned char *, bool>
+    allocate(unsigned short space, unsigned short index);
     // 给定一条记录的槽位下标，回收一条记录，回收slots[]中分配的槽位
     void deallocate(unsigned short index);
     // 回收删除记录的资源，回收了slots资源，后续需要重排slots[]

@@ -23,7 +23,7 @@ TEST_CASE("db/block.h")
         REQUIRE(sizeof(Trailer) % 8 == 0);
         REQUIRE(
             sizeof(SuperHeader) ==
-            sizeof(CommonHeader) + sizeof(TimeStamp) + 7 * sizeof(int));
+            sizeof(CommonHeader) + sizeof(TimeStamp) + 9 * sizeof(int));
         REQUIRE(sizeof(SuperHeader) % 8 == 0);
         REQUIRE(sizeof(IdleHeader) == sizeof(CommonHeader) + sizeof(int));
         REQUIRE(sizeof(IdleHeader) % 8 == 0);
@@ -138,8 +138,8 @@ TEST_CASE("db/block.h")
         data.clear(1, 3, BLOCK_TYPE_DATA);
 
         // 分配8字节
-        unsigned char *space = data.allocate(8);
-        REQUIRE(space == buffer + sizeof(DataHeader));
+        std::pair<unsigned char *, bool> alloc_ret = data.allocate(8, 0);
+        REQUIRE(alloc_ret.first == buffer + sizeof(DataHeader));
         REQUIRE(data.getFreeSpace() == sizeof(DataHeader) + 8);
         REQUIRE(
             data.getFreeSize() ==
@@ -164,8 +164,8 @@ TEST_CASE("db/block.h")
         record.set(iov, &h);
 
         // 分配5字节
-        space = data.allocate(5);
-        REQUIRE(space == buffer + sizeof(DataHeader) + 8);
+        alloc_ret = data.allocate(5, 0);
+        REQUIRE(alloc_ret.first == buffer + sizeof(DataHeader) + 8);
         REQUIRE(data.getFreeSpace() == sizeof(DataHeader) + 2 * 8);
         REQUIRE(
             data.getFreeSize() ==
@@ -188,8 +188,8 @@ TEST_CASE("db/block.h")
         record.set(iov, &h);
 
         // 分配711字节
-        space = data.allocate(711);
-        REQUIRE(space == buffer + sizeof(DataHeader) + 8 * 2);
+        alloc_ret = data.allocate(711, 0);
+        REQUIRE(alloc_ret.first == buffer + sizeof(DataHeader) + 8 * 2);
         REQUIRE(data.getFreeSpace() == sizeof(DataHeader) + 2 * 8 + 712);
         REQUIRE(
             data.getFreeSize() ==
@@ -318,10 +318,10 @@ TEST_CASE("db/block.h")
 
         // 分配空间
         unsigned short len = (unsigned short) Record::size(iov);
-        unsigned char *space = data.allocate(len);
+        std::pair<unsigned char *, bool> alloc_ret = data.allocate(len, 0);
         // 填充记录
         Record record;
-        record.attach(space, len);
+        record.attach(alloc_ret.first, len);
         unsigned char header = 0;
         record.set(iov, &header);
         // 重新排序
@@ -350,9 +350,9 @@ TEST_CASE("db/block.h")
         // 分配空间
         unsigned short len2 = len;
         len = (unsigned short) Record::size(iov);
-        space = data.allocate(len);
+        alloc_ret = data.allocate(len, 0);
         // 填充记录
-        record.attach(space, len);
+        record.attach(alloc_ret.first, len);
         record.set(iov, &header);
         REQUIRE(be16toh(slot->offset) == sizeof(DataHeader));
         REQUIRE(be16toh(slot->length) == len + 5);
@@ -431,10 +431,10 @@ TEST_CASE("db/block.h")
 
         // 分配空间
         unsigned short len = (unsigned short) Record::size(iov);
-        unsigned char *space = data.allocate(len);
+        std::pair<unsigned char *, bool> alloc_ret = data.allocate(len, 0);
         // 填充记录
         Record record;
-        record.attach(space, len);
+        record.attach(alloc_ret.first, len);
         unsigned char header = 0;
         record.set(iov, &header);
         // 重新排序
@@ -458,9 +458,9 @@ TEST_CASE("db/block.h")
         // 分配空间
         unsigned short len2 = len;
         len = (unsigned short) Record::size(iov);
-        space = data.allocate(len);
+        alloc_ret = data.allocate(len, 0);
         // 填充记录
-        record.attach(space, len);
+        record.attach(alloc_ret.first, len);
         record.set(iov, &header);
         // 重新排序
         data.reorder(type, 0);

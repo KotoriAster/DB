@@ -114,14 +114,14 @@ int Schema::create(const char *table, RelationInfo &info)
     BufDesp *desp = buffer_->borrow(META_FILE, first_);
     meta.attach(desp->buffer);
     unsigned short length = (unsigned short) Record::size(iov);
-    unsigned char *buf = meta.allocate(length);
-    if (buf == NULL) {
+    std::pair<unsigned char *, bool> alloc_ret = meta.allocate(length, 0);
+    if (alloc_ret.first == NULL) {
         // TODO: 再分配一个block
     }
 
     // 将关系信息写入buf，这里不需要排序，因为有tablespace_
     Record record;
-    record.attach(buf, length);
+    record.attach(alloc_ret.first, length);
     unsigned char header;
     htobe(iov);
     record.set(iov, &header);

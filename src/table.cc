@@ -104,6 +104,8 @@ unsigned int Table::allocate()
         desp = kBuffer.borrow(name_.c_str(), 0);
         super.attach(desp->buffer);
         super.setIdle(next);
+        super.setIdleCounts(super.getIdleCounts() - 1);
+        super.setDataCounts(super.getDataCounts() + 1);
         super.setChecksum();
         super.detach();
         kBuffer.writeBuf(desp);
@@ -126,6 +128,7 @@ unsigned int Table::allocate()
     desp = kBuffer.borrow(name_.c_str(), 0);
     super.attach(desp->buffer);
     super.setMaxid(maxid_);
+    super.setDataCounts(super.getDataCounts() + 1);
     super.setChecksum();
     super.detach();
     kBuffer.writeBuf(desp);
@@ -156,6 +159,8 @@ void Table::deallocate(unsigned int blockid)
     desp = kBuffer.borrow(name_.c_str(), 0);
     super.attach(desp->buffer);
     super.setIdle(blockid);
+    super.setIdleCounts(super.getIdleCounts() + 1);
+    super.setDataCounts(super.getDataCounts() - 1);
     super.setChecksum();
     super.detach();
     kBuffer.writeBuf(desp);
@@ -206,10 +211,16 @@ unsigned int Table::locate(void *keybuf, unsigned int len)
         unsigned int klen;
         record.refByIndex(&pkey, &klen, key);
         bool bret = type->less(pkey, klen, (unsigned char *) keybuf, len);
-        if (bret)
+        if (bret) {
             prev = bi;
+            continue;
+        }
+        // 要排除相等的情况
+        bret = type->less((unsigned char *) keybuf, len, pkey, klen);
+        if (bret)
+            return prev->getSelf(); //
         else
-            return prev->getSelf();
+            return bi->getSelf(); // 相等
     }
     return prev->getSelf();
 }
@@ -217,6 +228,7 @@ unsigned int Table::locate(void *keybuf, unsigned int len)
 int Table::insert(unsigned int blkid, std::vector<struct iovec> &iov)
 {
     DataBlock data;
+    SuperBlock super;
     data.setTable(this);
 
     // 从buffer中借用
@@ -228,7 +240,6 @@ int Table::insert(unsigned int blkid, std::vector<struct iovec> &iov)
         kBuffer.releaseBuf(bd); // 释放buffer
         // 修改表头统计
         bd = kBuffer.borrow(name_.c_str(), 0);
-        SuperBlock super;
         super.attach(bd->buffer);
         super.setRecords(super.getRecords() + 1);
         bd->relref();
@@ -256,18 +267,20 @@ int Table::insert(unsigned int blkid, std::vector<struct iovec> &iov)
         next.copyRecord(record);
         data.deallocate(split_position.first);
     }
-    // 插入新记录
+    // 插入新记录，不需要再重排顺序
     if (split_position.second)
         data.insertRecord(iov);
     else
         next.insertRecord(iov);
-    // 最后重排顺序
-    next.reorder(info_->fields[info_->key].type, info_->key);
     // 维持数据链
     next.setNext(data.getNext());
     data.setNext(next.getSelf());
-
     bd2->relref();
+
+    bd = kBuffer.borrow(name_.c_str(), 0);
+    super.attach(bd->buffer);
+    super.setRecords(super.getRecords() + 1);
+    bd->relref();
     return S_OK;
 }
 
@@ -277,6 +290,26 @@ size_t Table::recordCount()
     SuperBlock super;
     super.attach(bd->buffer);
     size_t count = super.getRecords();
+    kBuffer.releaseBuf(bd);
+    return count;
+}
+
+unsigned int Table::dataCount()
+{
+    BufDesp *bd = kBuffer.borrow(name_.c_str(), 0);
+    SuperBlock super;
+    super.attach(bd->buffer);
+    unsigned int count = super.getDataCounts();
+    kBuffer.releaseBuf(bd);
+    return count;
+}
+
+unsigned int Table::idleCount()
+{
+    BufDesp *bd = kBuffer.borrow(name_.c_str(), 0);
+    SuperBlock super;
+    super.attach(bd->buffer);
+    unsigned int count = super.getIdleCounts();
     kBuffer.releaseBuf(bd);
     return count;
 }

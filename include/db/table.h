@@ -74,6 +74,10 @@ class Table
 
     // 返回表上总的记录数目
     size_t recordCount();
+    // 返回表上数据块个数
+    unsigned int dataCount();
+    // 返回表上空闲块个数
+    unsigned int idleCount();
 
     // block迭代器
     BlockIterator beginblock();
