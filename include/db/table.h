@@ -72,6 +72,10 @@ class Table
     int update(unsigned int blkid, std::vector<struct iovec> &iov);
     // btree搜索
     unsigned int search(void *keybuf, unsigned int len);
+    // btree插入
+    unsigned int insert();
+    // btree删除
+    unsigned int remove();
 
     // 返回表上总的记录数目
     size_t recordCount();

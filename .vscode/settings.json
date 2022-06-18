@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "xmemory": "cpp",
+        "chrono": "cpp",
+        "format": "cpp",
+        "tuple": "cpp",
+        "xlocale": "cpp",
+        "xloctime": "cpp"
+    }
+}
