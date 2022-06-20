@@ -194,7 +194,7 @@ TEST_CASE("db/table.h")
         REQUIRE(i + 4 == table.recordCount());
         REQUIRE(!check(table));
     }
-
+    
     SECTION("split")
     {
         Table table;
@@ -371,5 +371,12 @@ TEST_CASE("db/table.h")
         REQUIRE(table.idleCount() == 0);
 
         REQUIRE(!check(table));
+    }
+    SECTION("remove")
+    {
+        Table table;
+        table.open("table");
+        DataType *type = table.info_->fields[table.info_->key].type;
+        REQUIRE(table.recordCount()==8701);
     }
 }

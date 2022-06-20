@@ -283,6 +283,62 @@ int Table::insert(unsigned int blkid, std::vector<struct iovec> &iov)
     bd->relref();
     return S_OK;
 }
+int Table::remove(unsigned int blkid, void *keybuf, unsigned int len)
+{
+    DataBlock data;
+    SuperBlock super;
+    data.setTable(this);
+
+    // 从buffer中借用
+    BufDesp *bd = kBuffer.borrow(name_.c_str(), blkid);
+    data.attach(bd->buffer);
+
+    data.deallocate(data.searchRecord(keybuf,len));//注意：需要考虑参数无效的情况
+    //考虑是否合并block
+    //如果需要，先清扫TombStone记录
+    if(data.getFreeSize()*2>data.getFreespaceSize())
+    {
+        RelationInfo *info = data.table_->info_;
+        unsigned int key = info->key;
+        DataType *type = info->fields[key].type;
+        data.shrink();
+        data.reorder(type,key);
+        DataBlock next;
+        next.setTable(this);
+        BufDesp *bd2 = kBuffer.borrow(name_.c_str(), data.getNext());
+        next.attach(bd2->buffer);
+        if(next.getFreespaceSize()-next.getFreeSize()<=data.getFreeSize()) //可以合并
+        {
+            //合并block
+            while(next.getSlots())
+            {
+                Record record;
+                next.refslots(0,record);
+                data.copyRecord(record);
+                next.deallocate(0);
+            }
+            //维持数据链
+            data.setNext(next.getNext());
+            //将空block放置在idle链上
+            deallocate(next.getSelf());
+            bd2->relref();
+        }
+        bd = kBuffer.borrow(name_.c_str(), 0);
+        super.attach(bd->buffer);
+        super.setRecords(super.getRecords() - 1);
+        bd->relref();
+        return S_OK;
+    }    
+    //尝试与后一个block合并,看后一个空余空间够不够
+    //如果空了就放到idle链上
+
+    //如果该block还没有被删除，就需要调整超块
+    bd = kBuffer.borrow(name_.c_str(), 0);
+    super.attach(bd->buffer);
+    super.setRecords(super.getRecords() - 1);
+    bd->relref();
+    return S_OK;
+}
 
 size_t Table::recordCount()
 {

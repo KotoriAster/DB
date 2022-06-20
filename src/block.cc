@@ -408,7 +408,6 @@ DataBlock::insertRecord(std::vector<struct iovec> &iov)
 
     return std::pair<bool, unsigned short>(true, index);
 }
-
 bool DataBlock::copyRecord(Record &record)
 {
     // 判断剩余空间是否足够
