@@ -296,7 +296,7 @@ int Table::remove(unsigned int blkid, void *keybuf, unsigned int len)
     unsigned int key = info->key;
     DataType *type = info->fields[key].type;
 
-    unsigned short getIndex = data.searchRecord(keybuf,len);
+    unsigned short getIndex = data.searchRecord(keybuf, len);
     if(data.getSlots() <= getIndex) //返回的index无效
     return S_FALSE; //删除失败
     Record record;
@@ -366,6 +366,41 @@ int Table::remove(unsigned int blkid, void *keybuf, unsigned int len)
     bd->relref();
     return S_OK;
 }
+
+int Table::update(unsigned int blkid, std::vector<struct iovec> &iov){
+    DataBlock data;
+    data.setTable(this);
+    // 从buffer中借用
+
+    BufDesp *bd = kBuffer.borrow(name_.c_str(), blkid);
+    data.attach(bd->buffer);
+
+    RelationInfo *info = data.table_->info_;
+    unsigned int key = info->key;
+    DataType *type = info->fields[key].type;
+
+    //先备份旧记录，如果删除后无法插入更新的记录，则恢复旧记录
+    unsigned short getIndex = data.searchRecord(iov[key].iov_base, iov[key].iov_len);
+    Record record;
+    data.refslots(getIndex, record);
+    unsigned char *pkey;
+    unsigned int klen;
+    record.refByIndex(&pkey, &klen, key);
+    if(!    (!type->less(pkey, klen, (unsigned char *) iov[key].iov_base, unsigned int(iov[key].iov_len))
+        &&  !type->less((unsigned char *) iov[key].iov_base, unsigned int(iov[key].iov_len), pkey, klen)   ))
+    return S_FALSE;
+
+    int flag = remove(blkid, iov[key].iov_base, unsigned int(iov[key].iov_len));
+    if(flag == S_FALSE) return S_FALSE;
+    else flag = insert(blkid, iov);
+    if(flag == S_FALSE)
+    {
+        data.copyRecord(record);
+        return S_FALSE;
+    }
+    else return S_OK;
+}
+
 
 size_t Table::recordCount()
 {

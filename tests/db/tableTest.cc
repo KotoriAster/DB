@@ -537,7 +537,45 @@ TEST_CASE("db/table.h")
         REQUIRE(table.idleCount() == totalIdle + 1);
         REQUIRE(bi->getSlots() == n1 + n2 - 2);
         REQUIRE(unsigned int(table.recordCount()) == totalRecord - 2);
-        n1 = bi->getSlots();
-        totalRecord = unsigned int(table.recordCount());
+    }
+
+    SECTION("update")
+    {
+        Table table;
+        table.open("table");
+        DataType *type = table.info_->fields[table.info_->key].type;
+
+        std::vector<struct iovec> iov(3);
+        long long nid;
+        char phone[20];
+        char addr[128];
+
+        iov[0].iov_base = &nid;
+        iov[0].iov_len = 8;
+        iov[1].iov_base = phone;
+        iov[1].iov_len = 20;
+        iov[2].iov_base = (void *) addr;
+        iov[2].iov_len = 128;
+
+        unsigned int totalData = table.dataCount();
+        unsigned int totalIdle = table.idleCount();
+        unsigned int totalRecord = unsigned int(table.recordCount());
+        //尝试更新一条不存在的记录
+
+        nid = 0;
+        type->htobe(&nid);
+        int ret = table.update(table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len), iov);
+        REQUIRE(ret == S_FALSE);
+        REQUIRE(totalData == table.dataCount());
+        REQUIRE(totalIdle == table.idleCount());
+        REQUIRE(totalRecord == unsigned int(table.recordCount()));
+        //尝试更新一条已有的记录
+        nid = 4;
+        type->htobe(&nid);
+        ret = table.update(table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len), iov);
+        REQUIRE(ret == S_OK);
+        REQUIRE(totalData == table.dataCount());
+        REQUIRE(totalIdle == table.idleCount());
+        REQUIRE(totalRecord == unsigned int(table.recordCount()));
     }
 }
