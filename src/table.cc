@@ -292,47 +292,74 @@ int Table::remove(unsigned int blkid, void *keybuf, unsigned int len)
     // 从buffer中借用
     BufDesp *bd = kBuffer.borrow(name_.c_str(), blkid);
     data.attach(bd->buffer);
+    RelationInfo *info = data.table_->info_;
+    unsigned int key = info->key;
+    DataType *type = info->fields[key].type;
 
-    data.deallocate(data.searchRecord(keybuf,len));//注意：需要考虑参数无效的情况
+    unsigned short getIndex = data.searchRecord(keybuf,len);
+    if(data.getSlots() <= getIndex) //返回的index无效
+    return S_FALSE; //删除失败
+    Record record;
+    data.refslots(getIndex, record);
+    unsigned char *pkey;
+    unsigned int klen;
+    record.refByIndex(&pkey, &klen, key);
+    if(!    (!type->less(pkey, klen, (unsigned char *) keybuf, len)
+        &&  !type->less((unsigned char *) keybuf, len, pkey, klen)   ))
+    return S_FALSE;
+    data.deallocate(getIndex);
     //考虑是否合并block
     //如果需要，先清扫TombStone记录
-    if(data.getFreeSize()*2>data.getFreespaceSize())
+    if(data.getFreeSize() > 8172) //每个block总空间为16344B，空闲空间超过一半时考虑合并
     {
-        RelationInfo *info = data.table_->info_;
-        unsigned int key = info->key;
-        DataType *type = info->fields[key].type;
-        data.shrink();
-        data.reorder(type,key);
-        DataBlock next;
-        next.setTable(this);
-        BufDesp *bd2 = kBuffer.borrow(name_.c_str(), data.getNext());
-        next.attach(bd2->buffer);
-        if(next.getFreespaceSize()-next.getFreeSize()<=data.getFreeSize()) //可以合并
+        if(data.getNext())
         {
-            //合并block
-            while(next.getSlots())
+            DataBlock next;
+            next.setTable(this);
+            BufDesp *bd2 = kBuffer.borrow(name_.c_str(), data.getNext());
+            next.attach(bd2->buffer);
+            if(16344 - (next.getFreeSize()) <= (data.getFreeSize())) //可以合并
             {
-                Record record;
-                next.refslots(0,record);
-                data.copyRecord(record);
-                next.deallocate(0);
+                if((16344 - (next.getFreeSize())) > (data.getFreespaceSize())) //需要清理
+                {
+                    data.shrink();
+                    data.reorder(type,key);
+                }
+                while(next.getSlots())
+                {
+                    Record record;
+                    next.refslots(0,record);
+                    data.copyRecord(record);
+                    next.deallocate(0);
+                }
+                //维持数据链
+                data.setNext(next.getNext());
+                //将空block放置在idle链上
+                deallocate(next.getSelf());
+                bd2->relref();
             }
-            //维持数据链
-            data.setNext(next.getNext());
-            //将空block放置在idle链上
-            deallocate(next.getSelf());
-            bd2->relref();
+            else if(next.getSlots() > data.getSlots()) //尝试两个block均分slots
+            {
+                unsigned short diff = (next.getSlots() - data.getSlots())/2;
+                bool sig = 0, ret;
+                while(diff--)
+                {
+                    Record record;
+                    next.refslots(0,record);
+                    ret = data.copyRecord(record);
+                    if(!ret && !sig) //空间不足,且未清理
+                    {
+                        data.shrink();
+                        data.reorder(type,key);
+                        sig = 1; //已清理标记
+                        ret = data.copyRecord(record); //重新尝试插入
+                    }
+                    if(!ret) break; //无法插入，终止
+                    next.deallocate(0);
+                }
+            }
         }
-        bd = kBuffer.borrow(name_.c_str(), 0);
-        super.attach(bd->buffer);
-        super.setRecords(super.getRecords() - 1);
-        bd->relref();
-        return S_OK;
-    }    
-    //尝试与后一个block合并,看后一个空余空间够不够
-    //如果空了就放到idle链上
-
-    //如果该block还没有被删除，就需要调整超块
+    }
     bd = kBuffer.borrow(name_.c_str(), 0);
     super.attach(bd->buffer);
     super.setRecords(super.getRecords() - 1);

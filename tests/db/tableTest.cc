@@ -37,7 +37,7 @@ void dump(Table &table)
                 key,
                 be16toh(slot->offset),
                 rcount,
-                bcount);
+                bi->getSelf());
         }
     }
     printf("total records=%zd\n", table.recordCount());
@@ -145,7 +145,6 @@ TEST_CASE("db/table.h")
         Table table;
         table.open("table");
         DataType *type = table.info_->fields[table.info_->key].type;
-
         // 检查表记录
         long long records = table.recordCount();
         REQUIRE(records == 0);
@@ -194,7 +193,7 @@ TEST_CASE("db/table.h")
         REQUIRE(i + 4 == table.recordCount());
         REQUIRE(!check(table));
     }
-    
+
     SECTION("split")
     {
         Table table;
@@ -377,6 +376,168 @@ TEST_CASE("db/table.h")
         Table table;
         table.open("table");
         DataType *type = table.info_->fields[table.info_->key].type;
-        REQUIRE(table.recordCount()==8701);
+
+        // 准备添加
+        std::vector<struct iovec> iov(3);
+        long long nid;
+        char phone[20];
+        char addr[128];
+
+        iov[0].iov_base = &nid;
+        iov[0].iov_len = 8;
+        iov[1].iov_base = phone;
+        iov[1].iov_len = 20;
+        iov[2].iov_base = (void *) addr;
+        iov[2].iov_len = 128;
+
+        //保证第一个block里保存的key取值在0~47之间且连续，便于后续测试
+        //确保表中存在key=48的记录，便于后续测试
+        for (long long i = 0; i <= 48; ++i) {
+            nid = i;
+            type->htobe(&nid);
+            // locate位置
+            unsigned int blkid =
+                table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len);
+            REQUIRE(blkid == 1);
+            // 插入记录
+            table.insert(blkid, iov);
+        }
+
+        unsigned int totalRecord = unsigned int(table.recordCount()); //总记录条数
+        Table::BlockIterator bi = table.beginblock();
+
+        //测试删除一条存在的记录
+        //删除key=48的记录，以确保稍后可以将其插入第一个block
+        nid = 48;
+        type->htobe(&nid);
+        int ret = table.remove(table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len), iov[0].iov_base, (unsigned int) iov[0].iov_len);
+        REQUIRE(ret == S_OK);
+        REQUIRE(unsigned int(table.recordCount()) == totalRecord - 1);
+        totalRecord = unsigned int(table.recordCount());
+        
+        //测试删除一条不存在的记录
+        //key=48的记录已被删除，尝试再次删除，要求返回删除失败
+        ret = table.remove(table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len), iov[0].iov_base, (unsigned int) iov[0].iov_len);
+        REQUIRE(ret == S_FALSE);
+
+        bi++;
+        long long bound1 = 0, bound2 = 0; //两个block中存储的record key的最小值，key=0的记录已被插入，故bound1 = 0
+
+        //确定bound2，以便后续操作
+        for (long long i = 1; i < 192; ++i) {
+            nid = i;
+            bound2 = i;
+            type->htobe(&nid);
+            // locate位置
+            if(table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len) == bi->getSelf())
+            break;
+        }
+        bi = table.beginblock();
+        for (long long i = bound2; i < bound2 + 50; ++i) {
+            nid = i;
+            type->htobe(&nid);
+            // locate位置
+            unsigned int blkid =
+                table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len);
+            // 插入记录
+            table.insert(blkid, iov);
+        }
+
+        //确保第二个block中含有50条记录
+        for (long long i = bound2 + 50; i < bound2 + 96; ++i) {
+            nid = i;
+            type->htobe(&nid);
+            unsigned int toRemove = table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len); //该record所在block编号
+            table.remove(toRemove, iov[0].iov_base, (unsigned int) iov[0].iov_len);
+        }
+
+        //确保第一个block中保存的record key取值为0~47，共48条记录
+        for (long long i = bound2 - 1; i > 47; --i) {
+            nid = i;
+            type->htobe(&nid);
+            ret = table.remove(bi->getSelf(), iov[0].iov_base, (unsigned int) iov[0].iov_len);
+        }
+
+        //将key=48的一条记录插入第一个block，插入后该block后有49条记录，有效长度超过一半
+        nid = 48;
+        type->htobe(&nid);
+        // locate位置
+        unsigned int blkid =
+            table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len);
+        // 插入记录
+        REQUIRE(blkid == 1);
+        ret = table.insert(blkid, iov);
+        REQUIRE(ret == S_OK);
+
+        //至此。前两个block中分别存有49、50条记录，且key值连续。
+        REQUIRE(bi->getSlots() == 49);
+        bi++;
+        REQUIRE(bi->getSlots() == 50);
+        bi = table.beginblock();
+
+        //下面将对block合并的各种情况进行测试。
+
+        unsigned int totalData = table.dataCount(); //总数据块数
+        unsigned int totalIdle = table.idleCount(); //总空闲块数
+        unsigned short n1 = bi->getSlots(); //第一个block记录条数
+
+        //情况1：无需合并
+        //尝试移除位于第一个block上的key=0的记录
+        totalRecord = unsigned int(table.recordCount());
+        nid = 0;
+        type->htobe(&nid);
+        unsigned int toRemove = table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len); //该record所在block编号
+        REQUIRE(toRemove == 1);
+        ret = table.remove(toRemove, iov[0].iov_base, (unsigned int) iov[0].iov_len);
+        REQUIRE(ret == S_OK);
+        REQUIRE(totalData == table.dataCount());
+        REQUIRE(totalIdle == table.idleCount());
+        REQUIRE(bi->getSlots() == n1 - 1);
+        REQUIRE(unsigned int(table.recordCount()) == totalRecord - 1);
+        n1 = bi->getSlots();
+        totalRecord = unsigned int(table.recordCount());
+
+        //情况2：需要合并，但空间不足以包含下一个block，此时尽量平分slots
+        //尝试移除位于第一个block上的key=1的记录
+        bi++;
+        unsigned short n2 = bi->getSlots();
+        bi = table.beginblock();
+        nid = 1;
+        type->htobe(&nid);
+        toRemove = table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len); //该record所在block编号
+        REQUIRE(toRemove == 1);
+        ret = table.remove(toRemove, iov[0].iov_base, (unsigned int) iov[0].iov_len);
+        REQUIRE(ret == S_OK);
+        REQUIRE(totalData == table.dataCount());
+        REQUIRE(totalIdle == table.idleCount());
+        REQUIRE(bi->getSlots() == n1); //删除了一条记录，为平衡slots数目，又从后一个block调来一条记录
+        bi++;
+        REQUIRE(bi->getSlots() == n2 - 1);
+        n2 = bi->getSlots();
+        bi = table.beginblock();
+        REQUIRE(unsigned int(table.recordCount()) == totalRecord - 1);
+        totalRecord = unsigned int(table.recordCount());
+
+        //情况3：直接合并
+        //从第一个block上再删除两条记录，确保达到了合并条件
+        //尝试移除位于第一个block上的key=2与3的记录
+        nid = 2;
+        type->htobe(&nid);
+        toRemove = table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len); //该record所在block编号
+        REQUIRE(toRemove == 1);
+        ret = table.remove(toRemove, iov[0].iov_base, (unsigned int) iov[0].iov_len);
+        REQUIRE(ret == S_OK);
+        nid = 3;
+        type->htobe(&nid);
+        toRemove = table.locate(iov[0].iov_base, (unsigned int) iov[0].iov_len); //该record所在block编号
+        REQUIRE(toRemove == 1);
+        ret = table.remove(toRemove, iov[0].iov_base, (unsigned int) iov[0].iov_len);
+        REQUIRE(ret == S_OK);
+        REQUIRE(table.dataCount() == totalData - 1);
+        REQUIRE(table.idleCount() == totalIdle + 1);
+        REQUIRE(bi->getSlots() == n1 + n2 - 2);
+        REQUIRE(unsigned int(table.recordCount()) == totalRecord - 2);
+        n1 = bi->getSlots();
+        totalRecord = unsigned int(table.recordCount());
     }
 }

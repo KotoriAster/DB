@@ -264,7 +264,7 @@ class SuperBlock : public Block
         SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
         header->idlecounts = htobe32(counts);
     }
-    // 获取datacounts
+    // 获取idlecounts
     inline unsigned int getIdleCounts()
     {
         SuperHeader *header = reinterpret_cast<SuperHeader *>(buffer_);
